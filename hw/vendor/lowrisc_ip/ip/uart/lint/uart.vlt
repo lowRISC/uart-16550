@@ -1,0 +1,15 @@
+// Copyright lowRISC contributors (OpenTitan project).
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+
+`verilator_config
+
+// The STATUS register is marked hrw because we need access to its
+// read-enables (e.g. reg2hw.status.txfull.re). We don't look at the
+// rest of the exposed signals, though: waive the resulting warnings.
+lint_off -rule UNUSED -file "*/rtl/uart_core.sv" -match "Bits of signal are not used: 'reg2hw'[*]"
+
+// The 3-bit RXILVL/TXILVL fields are compared against 32-bit localparams
+// derived from the FIFO depths. Zero-extending them is intended.
+lint_off -rule WIDTHEXPAND -file "*/rtl/uart_core.sv" -match "*'uart_fifo_rxilvl'*"
+lint_off -rule WIDTHEXPAND -file "*/rtl/uart_core.sv" -match "*'uart_fifo_txilvl'*"

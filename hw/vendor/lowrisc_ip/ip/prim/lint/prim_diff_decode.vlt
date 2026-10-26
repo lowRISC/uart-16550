@@ -1,0 +1,9 @@
+// Copyright lowRISC contributors (OpenTitan project).
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+
+`verilator_config
+
+// skew_cnt_q is sized to count up to SkewCycles and is compared against the
+// 32-bit SkewCycles parameter. Zero-extending it is intended.
+lint_off -rule WIDTHEXPAND -file "*/rtl/prim_diff_decode.sv" -match "*'skew_cnt_q'*"
