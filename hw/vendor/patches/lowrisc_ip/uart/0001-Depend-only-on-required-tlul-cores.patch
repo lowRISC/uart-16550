@@ -1,0 +1,13 @@
+--- a/uart.core
++++ b/uart.core
+@@ -9,7 +9,9 @@
+     depend:
+       - lowrisc:virtual_constants:top_pkg
+       - lowrisc:prim:all
+-      - lowrisc:ip:tlul
++      - lowrisc:prim:onehot
++      - lowrisc:tlul:headers
++      - lowrisc:tlul:adapter_reg
+       - lowrisc:virtual_constants:top_racl_pkg
+     files:
+       - rtl/uart_reg_pkg.sv

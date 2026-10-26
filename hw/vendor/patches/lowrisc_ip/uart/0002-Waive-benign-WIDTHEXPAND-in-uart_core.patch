@@ -1,0 +1,11 @@
+--- a/lint/uart.vlt
++++ b/lint/uart.vlt
+@@ -8,3 +8,8 @@
+ // read-enables (e.g. reg2hw.status.txfull.re). We don't look at the
+ // rest of the exposed signals, though: waive the resulting warnings.
+ lint_off -rule UNUSED -file "*/rtl/uart_core.sv" -match "Bits of signal are not used: 'reg2hw'[*]"
++
++// The 3-bit RXILVL/TXILVL fields are compared against 32-bit localparams
++// derived from the FIFO depths. Zero-extending them is intended.
++lint_off -rule WIDTHEXPAND -file "*/rtl/uart_core.sv" -match "*'uart_fifo_rxilvl'*"
++lint_off -rule WIDTHEXPAND -file "*/rtl/uart_core.sv" -match "*'uart_fifo_txilvl'*"

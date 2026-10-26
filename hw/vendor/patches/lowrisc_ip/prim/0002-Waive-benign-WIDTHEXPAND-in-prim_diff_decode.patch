@@ -1,0 +1,31 @@
+--- a/prim_diff_decode.core
++++ b/prim_diff_decode.core
+@@ -15,7 +15,16 @@
+       - rtl/prim_diff_decode.sv
+     file_type: systemVerilogSource
+ 
++  files_verilator_waiver:
++    depend:
++      # common waivers
++      - lowrisc:lint:common
++    files:
++      - lint/prim_diff_decode.vlt
++    file_type: vlt
++
+ targets:
+   default:
+     filesets:
++      - tool_verilator ? (files_verilator_waiver)
+       - files_rtl
+--- /dev/null
++++ b/lint/prim_diff_decode.vlt
+@@ -0,0 +1,9 @@
++// Copyright lowRISC contributors (OpenTitan project).
++// Licensed under the Apache License, Version 2.0, see LICENSE for details.
++// SPDX-License-Identifier: Apache-2.0
++
++`verilator_config
++
++// skew_cnt_q is sized to count up to SkewCycles and is compared against the
++// 32-bit SkewCycles parameter. Zero-extending it is intended.
++lint_off -rule WIDTHEXPAND -file "*/rtl/prim_diff_decode.sv" -match "*'skew_cnt_q'*"

@@ -1,0 +1,28 @@
+// Copyright lowRISC contributors.
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+{
+    name: "lowrisc_ip",
+    target_dir: "lowrisc_ip",
+    patch_dir: "patches/lowrisc_ip",
+
+    upstream: {
+        url: "https://github.com/lowRISC/opentitan"
+        rev: "master"
+    }
+
+    mapping: [
+        {from: "hw/ip/uart",         to: "ip/uart",   patch_dir: "uart"},
+
+        // Dependencies of the UART
+        {from: "hw/ip/prim",         to: "ip/prim",   patch_dir: "prim"},
+        {from: "hw/ip/prim_generic", to: "ip/prim_generic"},
+        {from: "hw/ip/tlul",         to: "ip/tlul"},
+        {from: "hw/lint",            to: "lint"},
+
+        // Tool version checks used by the lint cores
+        {from: "hw/check_tool_requirements.core", to: "check_tool_requirements.core"},
+        {from: "hw/check_tool_requirements.py",   to: "check_tool_requirements.py"},
+        {from: "hw/tool_requirements.py",         to: "tool_requirements.py"},
+    ]
+}
