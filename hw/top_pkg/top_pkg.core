@@ -1,0 +1,19 @@
+CAPI=2:
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:uart16550_constants:top_pkg:0.1"
+description: "Top-level constants (TL-UL bus widths) for the vendored OpenTitan IP"
+virtual:
+  - lowrisc:virtual_constants:top_pkg
+
+filesets:
+  files_rtl:
+    files:
+      - rtl/top_pkg.sv
+    file_type: systemVerilogSource
+
+targets:
+  default:
+    filesets:
+      - files_rtl

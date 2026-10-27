@@ -1,0 +1,23 @@
+CAPI=2:
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:uart16550_constants:top_racl_pkg:0.1"
+description: "Minimal RACL package for the vendored OpenTitan IP, with RACL unused"
+virtual:
+  - lowrisc:virtual_constants:top_racl_pkg
+
+filesets:
+  files_rtl:
+    depend:
+      - lowrisc:virtual_constants:top_pkg
+      - lowrisc:prim:util
+      - lowrisc:tlul:headers
+    files:
+      - rtl/top_racl_pkg.sv
+    file_type: systemVerilogSource
+
+targets:
+  default:
+    filesets:
+      - files_rtl
