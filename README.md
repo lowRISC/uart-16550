@@ -6,7 +6,7 @@ This repository contains a wrapper around [OpenTitan's well-verified UART hardwa
 
 To do a test build you can use the following command:
 ```sh
-fusesoc --cores-root=. run --target=lint lowrisc:ip:uart
+fusesoc --cores-root=. run --target=lint lowrisc:ip:uart16550
 ```
 
 [opentitan-uart]: https://github.com/lowRISC/opentitan/tree/master/hw/ip/uart
