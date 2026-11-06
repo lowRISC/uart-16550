@@ -46,6 +46,21 @@ module uart16550
   output logic    intr_rx_parity_err_o
 );
 
+  // TileLink signals.
+  // Translated requests to the OpenTitan UART core
+  tlul_pkg::tl_h2d_t tl_translated_h2d;
+  tlul_pkg::tl_d2h_t tl_translated_d2h;
+
+  // Register translation block
+  uart16550_translate u_reg_translate(
+    .clk_i     (clk_i),
+    .rst_ni    (rst_ni),
+    .host_tl_i (tl_i),
+    .host_tl_o (tl_o),
+    .uart_tl_o (tl_translated_h2d),
+    .uart_tl_i (tl_translated_d2h)
+  );
+
   // OpenTitan UART core instance
   uart #(
     .AlertAsyncOn     ( AlertAsyncOn     ),
@@ -56,8 +71,8 @@ module uart16550
   ) u_uart_core(
     .clk_i                (clk_i),
     .rst_ni               (rst_ni),
-    .tl_i                 (tl_i),
-    .tl_o                 (tl_o),
+    .tl_i                 (tl_translated_h2d),
+    .tl_o                 (tl_translated_d2h),
     .alert_rx_i           (alert_rx_i),
     .alert_tx_o           (alert_tx_o),
     .racl_policies_i      (racl_policies_i),

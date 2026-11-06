@@ -9,8 +9,10 @@ filesets:
     depend:
       - lowrisc:virtual_constants:top_pkg
       - lowrisc:virtual_constants:top_racl_pkg
+      - lowrisc:prim:sparse_fsm
       - lowrisc:ip:uart
     files:
+      - rtl/uart16550_translate.sv
       - rtl/uart16550.sv
     file_type: systemVerilogSource
 
