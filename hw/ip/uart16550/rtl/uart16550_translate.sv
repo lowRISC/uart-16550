@@ -18,7 +18,7 @@ module uart16550_translate(
 
   // Unused signals
   logic unused_sig;
-  assign unused_sig = |{host_tl_i, uart_tl_i};
+  assign unused_sig = |{host_tl_i, uart_tl_i, req_reg_q};
 
   // TODO: LSR reads should only clear INTR_STATE bits previously set
   // TODO: incoming host req intg verify
@@ -63,12 +63,34 @@ module uart16550_translate(
     DLReqSt = 10'hE,
     DLReqWaitSt = 10'hF,
     DLRespSt = 10'h10,
+    TLReqSt     = 10'h11,
+    TLReqWaitSt     = 10'h12,
+    TLRespSt     = 10'h13,
     ErrorRespSt         = 10'b0100100011
   } state_e;
 
   state_e state_d, state_q;
 
+  // 16550 register id enum
+  localparam int unsigned RegIdWidth = 4;
+  typedef enum logic [RegIdWidth-1:0] {
+    RBR = 4'h0,
+    THR = 4'h1,
+    IER = 4'h2,
+    IIR = 4'h3,
+    FCR = 4'h4,
+    LCR = 4'h5,
+    MCR = 4'h6,
+    LSR = 4'h7,
+    MSR = 4'h8,
+    SCR = 4'h9,
+    DLL = 4'hA,
+    DLM = 4'hB
+  } reg_e;
+
   // Latched request parameters
+  reg_e                       req_reg_d;
+  reg_e                       req_reg_q;
   tlul_pkg::tl_a_op_e         req_opcode_d;
   tlul_pkg::tl_a_op_e         req_opcode_q;
   logic [top_pkg::TL_DW-1:0]  req_data_d;
@@ -89,6 +111,8 @@ module uart16550_translate(
   logic                      resp_error_q;
 
   // Additional request control registers
+  logic       req_skip_tl_req_d;
+  logic       req_skip_tl_req_q;
   logic [1:0] req_step_d;
   logic [1:0] req_step_q;
 
@@ -139,6 +163,7 @@ module uart16550_translate(
     uart_tl_o.a_size    = 2;
     uart_tl_o.a_mask    = '1;
 
+    req_reg_d = req_reg_q;
     req_opcode_d = req_opcode_q;
     req_data_d = req_data_q;
     req_size_d = req_size_q;
@@ -148,6 +173,7 @@ module uart16550_translate(
     resp_data_d = resp_data_q;
     resp_error_d = resp_error_q;
 
+    req_skip_tl_req_d = req_skip_tl_req_q;
     req_step_d = req_step_q;
 
     edssi_d = edssi_q;
@@ -186,46 +212,48 @@ module uart16550_translate(
 
           req_step_d = 2'h0;
 
+          // Clear response error
+          resp_error_d = 1'b0;
+
           // Decode request
           unique case (host_tl_i.a_address[4:0])
             'h0: begin
               if (!dlab_q) begin
-                state_d = FifoReqSt;
+                req_reg_d = (host_tl_i.a_opcode == tlul_pkg::Get) ? RBR : THR;
+                req_skip_tl_req_d = 1'b0;
+                state_d = TLReqSt;
               end else begin
-                // Override step to 0, this identifies access to DLL
-                req_step_d = 2'h0;
-
-                if (host_tl_i.a_opcode == tlul_pkg::Get) begin
-                  // DLL/DLM reads do not require a request to the UART core
-                  state_d = DLRespSt;
-                end else begin
-                  state_d = DLReqSt;
-                end
+                req_reg_d = DLL;
+                req_skip_tl_req_d = (host_tl_i.a_opcode == tlul_pkg::Get); // Reads do not require a request to the UART core
+                state_d = TLReqSt;
               end
             end
             'h4: begin
               if (!dlab_q) begin
-                state_d = IERReqSt;
+                req_reg_d = IER;
+                req_skip_tl_req_d = 1'b0;
+                state_d = TLReqSt;
               end else begin
-                // Override step to 1, this identifies access to DLM
-                req_step_d = 2'h1;
-
-                if (host_tl_i.a_opcode == tlul_pkg::Get) begin
-                  // DLL/DLM reads do not require a request to the UART core
-                  state_d = DLRespSt;
-                end else begin
-                  state_d = DLReqSt;
-                end
+                req_reg_d = DLM;
+                req_skip_tl_req_d = (host_tl_i.a_opcode == tlul_pkg::Get); // Reads do not require a request to the UART core
+                state_d = TLReqSt;
               end
             end
             'h8: begin
               if (host_tl_i.a_opcode == tlul_pkg::Get) begin
+                req_reg_d = IIR;
+                req_skip_tl_req_d = 1'b0;
                 state_d = IIRReqSt;
+                state_d = TLReqSt;
               end else begin
+                req_reg_d = FCR;
+                req_skip_tl_req_d = 1'b0;
                 state_d = FCRReqSt;
               end
             end
             'hC: begin
+              req_reg_d = LCR;
+              req_skip_tl_req_d = (host_tl_i.a_opcode == tlul_pkg::Get); // Reads do not require a request to the UART core
               if (host_tl_i.a_opcode == tlul_pkg::Get) begin
                 // LCR reads do not require a request to the UART core
                 state_d = LCRRespSt;
@@ -234,6 +262,8 @@ module uart16550_translate(
               end
             end
             'h10: begin
+              req_reg_d = MCR;
+              req_skip_tl_req_d = (host_tl_i.a_opcode == tlul_pkg::Get); // Reads do not require a request to the UART core
               if (host_tl_i.a_opcode == tlul_pkg::Get) begin
                 // MCR reads do not require a request to the UART core
                 state_d = MCRRespSt;
@@ -242,6 +272,8 @@ module uart16550_translate(
               end
             end
             'h14: begin
+              req_reg_d = LSR;
+              req_skip_tl_req_d = (host_tl_i.a_opcode != tlul_pkg::Get); // Writes are ignored
               if (host_tl_i.a_opcode == tlul_pkg::Get) begin
                 state_d = LSRReqSt;
               end else begin
@@ -250,10 +282,14 @@ module uart16550_translate(
               end
             end
             'h18: begin
+              req_reg_d = MSR;
+              req_skip_tl_req_d = 1'b1; // MSR accesses do not require a request to the UART core
               // MSR accesses do not require a request to the UART core
               state_d = MSRRespSt;
             end
             'h1C: begin
+              req_reg_d = SCR;
+              req_skip_tl_req_d = 1'b1; // SCR accesses do not require a request to the UART core
               // SCR accesses do not require a request to the UART core
               state_d = SCRRespSt;
             end
@@ -261,36 +297,181 @@ module uart16550_translate(
           endcase
         end
       end
-      // Passthrough request to R/W FIFO
-      FifoReqSt: begin
-        uart_tl_o.a_valid = 1;
-        if (req_opcode_q == tlul_pkg::Get) begin
-          uart_tl_o.a_opcode  = tlul_pkg::Get;
-          uart_tl_o.a_address = 'h18; // RDATA reg
-        end else begin
-          uart_tl_o.a_opcode  = tlul_pkg::PutFullData;
-          uart_tl_o.a_address = 'h1c; // WDATA reg
-        end
-        uart_tl_o.a_data = req_data_q;
 
-        if (uart_tl_i.a_ready) begin
-          state_d = FifoReqWaitSt;
+
+      // Send TL-UL request to UART
+      TLReqSt: begin
+        uart_tl_o.a_valid = !req_skip_tl_req_q; // Only send a request is it is not skipped
+        unique case ({req_reg_q, req_step_q})
+          {RBR, 2'h0}: uart_tl_o.a_opcode = tlul_pkg::Get;
+          {THR, 2'h0}: uart_tl_o.a_opcode = tlul_pkg::PutFullData;
+          {IER, 2'h0}: uart_tl_o.a_opcode = (req_opcode_q == tlul_pkg::Get) ? tlul_pkg::Get : tlul_pkg::PutFullData;
+          {IIR, 2'h0}: uart_tl_o.a_opcode = tlul_pkg::Get;
+          {IIR, 2'h1}: uart_tl_o.a_opcode = tlul_pkg::Get;
+          {DLL, 2'h0}: uart_tl_o.a_opcode = (req_opcode_q == tlul_pkg::Get) ? tlul_pkg::Get : tlul_pkg::PutFullData;
+          {DLM, 2'h0}: uart_tl_o.a_opcode = (req_opcode_q == tlul_pkg::Get) ? tlul_pkg::Get : tlul_pkg::PutFullData;
+          default: ; // TODO default
+        endcase
+        unique case ({req_reg_q, req_step_q})
+          {RBR, 2'h0}: uart_tl_o.a_address = 'h18; // RDATA reg
+          {THR, 2'h0}: uart_tl_o.a_address = 'h1c; // WDATA reg
+          {IER, 2'h0}: uart_tl_o.a_address = 'h4; // INTR_ENABLE reg
+          {IIR, 2'h0}: uart_tl_o.a_address = 'h0; // INTR_STATE reg
+          {IIR, 2'h1}: uart_tl_o.a_address = 'h4; // INTR_ENABLE reg
+          {DLL, 2'h0}: uart_tl_o.a_address = 'h10; // CTRL reg
+          {DLM, 2'h0}: uart_tl_o.a_address = 'h10; // CTRL reg
+          default: ;
+        endcase
+        unique case ({req_reg_q, req_step_q})
+          {RBR, 2'h0}: uart_tl_o.a_data = '1; // This will be ignored
+          {THR, 2'h0}: uart_tl_o.a_data = req_data_q;
+          {IER, 2'h0}: begin
+            // Write action
+            if (req_opcode_q != tlul_pkg::Get) begin
+              // EDSSI write
+              // This register has no effect but the value is kept
+              edssi_d = req_data_q[3];
+            end
+
+            uart_tl_o.a_data = '0;
+            uart_tl_o.a_data[1] = req_data_q[0]; // rx_watermark = ERBFI
+            uart_tl_o.a_data[8] = req_data_q[1]; // tx_empty = ETBEI
+            uart_tl_o.a_data[3] = req_data_q[2]; // rx_overflow = ELSI
+            uart_tl_o.a_data[4] = req_data_q[2]; // rx_frame_err = ELSI
+            uart_tl_o.a_data[5] = req_data_q[2]; // rx_break_err = ELSI
+            uart_tl_o.a_data[7] = req_data_q[2]; // rx_parity_err = ELSI
+          end
+          {IIR, 2'h0}: uart_tl_o.a_data = '1; // This will be ignored
+          {IIR, 2'h1}: uart_tl_o.a_data = '1; // This will be ignored
+          {DLL, 2'h0}: begin
+            // Write action
+            if (req_opcode_q != tlul_pkg::Get) begin
+              // Enable Tx and Rx
+              txrx_en_d = 1'b1;
+              // DLL write
+              dll_d = req_data_q[7:0];
+            end
+
+            uart_tl_o.a_data = '0;
+            uart_tl_o.a_data[0] = txrx_en_d; // TX = new txrx_en
+            uart_tl_o.a_data[1] = txrx_en_d; // RX = new txrx_en
+            uart_tl_o.a_data[4] = loop_q; // SLPBK = loop
+            uart_tl_o.a_data[6] = pen_q; // PARITY_EN = PEN
+            uart_tl_o.a_data[7] = ~eps_q; // PARITY_ODD = !EPS
+            uart_tl_o.a_data[31:16] = 16'd20972; // NCO default value
+          end
+          {DLM, 2'h0}: begin
+            // Write action
+            if (req_opcode_q != tlul_pkg::Get) begin
+              // Enable Tx and Rx
+              txrx_en_d = 1'b1;
+              // DLL write
+              dlm_d = req_data_q[7:0];
+            end
+
+            uart_tl_o.a_data = '0;
+            uart_tl_o.a_data[0] = txrx_en_d; // TX = new txrx_en
+            uart_tl_o.a_data[1] = txrx_en_d; // RX = new txrx_en
+            uart_tl_o.a_data[4] = loop_q; // SLPBK = loop
+            uart_tl_o.a_data[6] = pen_q; // PARITY_EN = PEN
+            uart_tl_o.a_data[7] = ~eps_q; // PARITY_ODD = !EPS
+            uart_tl_o.a_data[31:16] = 16'd20972; // NCO default value
+          end
+          default: ;
+        endcase
+
+        // Move to next state if the request is accepted by the UART core or
+        // request is skipped
+        if (uart_tl_i.a_ready || req_skip_tl_req_q) begin
+          state_d = TLReqWaitSt;
         end
       end
-      // Wait for FIFO response from UART
-      FifoReqWaitSt: begin
-        if (uart_tl_i.d_valid) begin
-          resp_opcode_d = uart_tl_i.d_opcode;
-          resp_data_d = uart_tl_i.d_data;
-          resp_error_d = uart_tl_i.d_error;
+      // Wait for TL-UL response from UART and update response data
+      TLReqWaitSt: begin
+        if (uart_tl_i.d_valid || req_skip_tl_req_q) begin
+          // Update response data
+          unique case ({req_reg_q, req_step_q})
+            {RBR, 2'h0}: resp_data_d = uart_tl_i.d_data;
+            {THR, 2'h0}: resp_data_d = '1;
+            {IER, 2'h0}: begin
+              if (req_opcode_q == tlul_pkg::Get) begin
+                resp_data_d = '0;
+                resp_data_d[0] = uart_tl_i.d_data[1]; // ERBFI = rx_watermark
+                resp_data_d[1] = uart_tl_i.d_data[8]; // ETBEI = tx_empty
+                resp_data_d[2] = (uart_tl_i.d_data[3] & // ELSI = rx_overflow &
+                                  uart_tl_i.d_data[4] & //        rx_frame_err &
+                                  uart_tl_i.d_data[5] & //        rx_break_err &
+                                  uart_tl_i.d_data[7]); //        rx_parity_err
+                resp_data_d[3] = edssi_q;        // EDSSI read back
+              end else begin
+                resp_data_d = '1;
+              end
+            end
+            {IIR, 2'h0}: resp_data_d = uart_tl_i.d_data;
+            {IIR, 2'h1}: begin
+              req_data_d = resp_data_q & uart_tl_i.d_data; // Temporary store
 
-          state_d = FifoRespSt;
+              resp_data_d = '0;
+              // Interrupt pending, active low
+              resp_data_d[0] = ~(req_data_d[1] |
+                                 req_data_d[3] |
+                                 req_data_d[4] |
+                                 req_data_d[5] |
+                                 req_data_d[7] |
+                                 req_data_d[8]);
+              if (req_data_d[3] || req_data_d[4] || req_data_d[5] || req_data_d[7]) begin
+                // Receiver line status has highest priority
+                resp_data_d[2:1] = 2'b11;
+              end else if (req_data_d[1]) begin
+                // Received data available has highest priority
+                resp_data_d[2:1] = 2'b10;
+              end else if (req_data_d[8]) begin
+                // Transmitter holding register empty has highest priority
+                resp_data_d[2:1] = 2'b01;
+              end else begin
+                // MODEM status has highest priority or no pending interrupt
+                resp_data_d[2:1] = 2'b00;
+              end
+              // Bit 3 = FIFO enable AND timeout error
+              resp_data_d[3] = fifo_en_q & req_data_d[3];
+              // Bit 6,7 = FIFO enable
+              resp_data_d[6] = fifo_en_q;
+              resp_data_d[7] = fifo_en_q;
+            end
+            {DLL, 2'h0}: resp_data_d = (req_opcode_q == tlul_pkg::Get) ? (top_pkg::TL_DW)'(dll_q) : '1;
+            {DLM, 2'h0}: resp_data_d = (req_opcode_q == tlul_pkg::Get) ? (top_pkg::TL_DW)'(dlm_q) : '1;
+            default:     resp_data_d = '1;
+          endcase
+
+          // Catch errors if a request is made
+          resp_error_d = resp_error_q | (uart_tl_i.d_error & ~req_skip_tl_req_q);
+
+          // Evaluate next state
+          unique case ({req_reg_q, req_step_q})
+            {RBR, 2'h0}: state_d = TLRespSt;
+            {THR, 2'h0}: state_d = TLRespSt;
+            {IER, 2'h0}: state_d = TLRespSt;
+            {IIR, 2'h0}: begin
+              state_d = TLReqSt;
+              req_step_d = req_step_q + 1;
+            end
+            {IIR, 2'h1}: state_d = TLRespSt;
+            {DLL, 2'h0}: state_d = TLRespSt;
+            {DLM, 2'h0}: state_d = TLRespSt;
+            default: state_d = TLRespSt;
+          endcase
         end
       end
-      // Send FIFO response to host
-      FifoRespSt: begin
+      // Send TL-UL response to the host
+      TLRespSt: begin
         host_tl_o.d_valid = 1'b1;
-        host_tl_o.d_opcode = resp_opcode_q;
+
+        if (req_opcode_q == tlul_pkg::Get) begin
+          host_tl_o.d_opcode = tlul_pkg::AccessAckData;
+        end else begin
+          host_tl_o.d_opcode = tlul_pkg::AccessAck;
+        end
+
         host_tl_o.d_data = resp_data_q;
         host_tl_o.d_error = resp_error_q;
 
@@ -298,69 +479,9 @@ module uart16550_translate(
           state_d = IdleSt;
         end
       end
-      // IER access: send request to UART
-      IERReqSt: begin
-        // Write to INTR_ENABLE
-        // No need for RMW as no other interrupt can be enabled
-        uart_tl_o.a_valid = 1;
-        if (req_opcode_q == tlul_pkg::Get) begin
-          uart_tl_o.a_opcode = tlul_pkg::Get;
-        end else begin
-          uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        end
-        uart_tl_o.a_address = 'h4; // INTR_ENABLE reg
-        uart_tl_o.a_data = '0;
-        // 16550 to OT mapping
-        uart_tl_o.a_data[1] = req_data_q[0]; // rx_watermark = ERBFI
-        uart_tl_o.a_data[8] = req_data_q[1]; // tx_empty = ETBEI
-        uart_tl_o.a_data[3] = req_data_q[2]; // rx_overflow = ELSI
-        uart_tl_o.a_data[4] = req_data_q[2]; // rx_frame_err = ELSI
-        uart_tl_o.a_data[5] = req_data_q[2]; // rx_break_err = ELSI
-        uart_tl_o.a_data[7] = req_data_q[2]; // rx_parity_err = ELSI
 
-        // EDSSI write logic
-        // This register has no effect but the value is kept
-        if (req_opcode_q != tlul_pkg::Get) begin
-          edssi_d = req_data_q[3];
-        end
 
-        if (uart_tl_i.a_ready) begin
-          state_d = IERReqWaitSt;
-        end
-      end
-      // IER access: wait for response from UART
-      IERReqWaitSt: begin // TODO duplicate states
-        if (uart_tl_i.d_valid) begin
-          resp_opcode_d = uart_tl_i.d_opcode;
-          resp_data_d = uart_tl_i.d_data;
-          resp_error_d = uart_tl_i.d_error;
 
-          state_d = IERRespSt;
-        end
-      end
-      // IER access: send response to host
-      IERRespSt: begin
-        host_tl_o.d_valid = 1'b1;
-        host_tl_o.d_opcode = resp_opcode_q;
-        if (req_opcode_q == tlul_pkg::Get) begin
-          // OT to 16550 mapping
-          host_tl_o.d_data = '0;
-          host_tl_o.d_data[0] = resp_data_q[1]; // ERBFI = rx_watermark
-          host_tl_o.d_data[1] = resp_data_q[8]; // ETBEI = tx_empty
-          host_tl_o.d_data[2] = (resp_data_q[3] & // ELSI = rx_overflow &
-                                resp_data_q[4] & //        rx_frame_err &
-                                resp_data_q[5] & //        rx_break_err &
-                                resp_data_q[7]); //        rx_parity_err
-          host_tl_o.d_data[3] = edssi_q;        // EDSSI read back
-        end else begin
-          host_tl_o.d_data = '1;
-        end
-        host_tl_o.d_error = resp_error_q;
-
-        if (host_tl_i.d_ready) begin
-          state_d = IdleSt;
-        end
-      end
       // IIR read: send request to UART
       IIRReqSt: begin
         // Read INTR_STATE / INTR_ENABLE
@@ -771,74 +892,6 @@ module uart16550_translate(
           state_d = IdleSt;
         end
       end
-      // DL write: send request to UART
-      DLReqSt: begin
-        // Enable Tx and Rx
-        txrx_en_d = 1'b1;
-
-        // Write CTRL
-        uart_tl_o.a_valid = 1;
-        uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = 'h10; // CTRL reg
-        // 16550 to OT mapping
-        uart_tl_o.a_data = '0;
-        uart_tl_o.a_data[0] = txrx_en_d; // TX = new txrx_en
-        uart_tl_o.a_data[1] = txrx_en_d; // RX = new txrx_en
-        uart_tl_o.a_data[4] = loop_q; // SLPBK = loop
-        uart_tl_o.a_data[6] = pen_q; // PARITY_EN = PEN
-        uart_tl_o.a_data[7] = ~eps_q; // PARITY_ODD = !EPS
-        uart_tl_o.a_data[31:16] = 16'd20972; // NCO default value
-
-        // DLL and DLM write
-        if (req_step_q == 0) begin
-          dll_d = req_data_q[7:0];
-        end else begin
-          dlm_d = req_data_q[7:0];
-        end
-
-        if (uart_tl_i.a_ready) begin
-          state_d = DLReqWaitSt;
-        end
-      end
-      // DL write: wait for response from UART
-      DLReqWaitSt: begin
-        if (uart_tl_i.d_valid) begin
-          resp_opcode_d = uart_tl_i.d_opcode;
-          resp_data_d = uart_tl_i.d_data;
-          resp_error_d = uart_tl_i.d_error;
-
-          state_d = DLRespSt;
-        end
-      end
-      // DL access: send response to host
-      DLRespSt: begin
-        host_tl_o.d_valid = 1'b1;
-        if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAckData;
-        end else begin
-          host_tl_o.d_opcode = resp_opcode_q;
-        end
-        if (req_opcode_q == tlul_pkg::Get) begin
-          // 16550 mapping
-          host_tl_o.d_data = '0;
-          if (req_step_q == 0) begin
-            host_tl_o.d_data[7:0] = dll_q;
-          end else begin
-            host_tl_o.d_data[7:0] = dlm_q;
-          end
-        end else begin
-          host_tl_o.d_data = '1;
-        end
-        if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_error = 1'b0;
-        end else begin
-          host_tl_o.d_error = resp_error_q;
-        end
-
-        if (host_tl_i.d_ready) begin
-          state_d = IdleSt;
-        end
-      end
       // Send error response to host
       ErrorRespSt: begin
         host_tl_o.d_valid = 1'b1;
@@ -861,7 +914,7 @@ module uart16550_translate(
       data_intg: tlul_pkg::get_data_intg(.data(host_tl_o.d_data))
     };
 
-    // Claculate UART TL-UL integrity
+    // Calculate UART TL-UL integrity
     uart_tl_o.a_user = '{
       rsvd: '0,
       instr_type: prim_mubi_pkg::MuBi4False,
@@ -888,12 +941,14 @@ module uart16550_translate(
   );
 
   always_ff @(posedge clk_i) begin
+    req_reg_q <= req_reg_d;
     req_opcode_q <= req_opcode_d;
     req_data_q <= req_data_d;
     req_mask_q <= req_mask_d;
     resp_opcode_q <= resp_opcode_d;
     resp_data_q <= resp_data_d;
     resp_error_q <= resp_error_d;
+    req_skip_tl_req_q <= req_skip_tl_req_d;
     req_step_q <= req_step_d;
   end
 
