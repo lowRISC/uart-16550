@@ -23,6 +23,9 @@ dependencies = [
     # Tool schema validation.
     "jsonschema>=4.26.0",
     "types-jsonschema>=4.26.0",
+    # Commit linting.
+    "argparse>=1.4.0",
+    "GitPython>=3.2.1",
 ]
 
 [tool.setuptools]
