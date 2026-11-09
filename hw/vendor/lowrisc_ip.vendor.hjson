@@ -24,5 +24,9 @@
         {from: "hw/check_tool_requirements.core", to: "check_tool_requirements.core"},
         {from: "hw/check_tool_requirements.py",   to: "check_tool_requirements.py"},
         {from: "hw/tool_requirements.py",         to: "tool_requirements.py",   patch_dir: "scripts"},
+
+        // Commit linting scripts
+        {from: "util/lint_commits.py",        to: "util/lint_commits.py"},
+        {from: "ci/scripts/lint-commits.sh",  to: "ci/scripts/lint-commits.sh", patch_dir: "ci"},
     ]
 }
