@@ -1,0 +1,58 @@
+# Copyright lowRISC and contributors (COSMIC project).
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "uart16550"
+version = "0.0.0"
+description = "UART 16550 Hardware IP Block is part of the COSMIC project."
+requires-python = ">=3.10"
+
+dependencies = [
+    "anytree==2.8.0",
+    "hjson==3.1.0",
+    "wheel==0.41.2",
+    "pyserial==3.5",
+    "pydantic>=2.8.2,<3",
+    "jinja2>=3.1.6,<4",
+    "semantic-version>=2.10.0,<3",
+    "pycryptodome>=3.23.0,<4",
+    "tabulate>=0.9.0,<0.10",
+    "setuptools>=80.9.0",
+    "packaging>=25.0",
+    # Needed for tlgen.
+    "mako>=1.2",
+    # Needed for block-level DV.
+    "mistletoe==0.9.0",
+    "peakrdl-systemrdl >= 1.0",
+    "rdl2ot>=0.4",
+    # Build system.
+    "fusesoc==2.4.3",
+    "pyright>=1.1.403",
+    "ruff>=0.9.6",
+    "reuse>=5.0.2",
+    "pytest>=8.4.1",
+    "twine>=6.1.0",
+    # Design verification runner.
+    "dvsim>=1.33",
+    "pyelftools>=0.32",
+    # Tool schema validation.
+    "jsonschema>=4.26.0",
+    "types-jsonschema>=4.26.0",
+]
+
+[tool.setuptools]
+py-modules = []
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = []
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "SIM", "PTH", "C4", "A", "RUF", "PERF"]
+
+[tool.ruff.lint.isort]
+# Standard library from 3.11, and the devshell's Python is newer than the 3.10
+# the target version keeps the rest of the tree compatible with.
+extra-standard-library = ["tomllib"]
