@@ -1,0 +1,42 @@
+# Copyright lowRISC and contributors (COSMIC project).
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "uart16550"
+version = "0.0.0"
+description = "UART 16550 Hardware IP Block is part of the COSMIC project."
+requires-python = ">=3.10"
+
+dependencies = [
+    "hjson==3.1.0",
+    "wheel==0.41.2",
+    "setuptools>=80.9.0",
+    "packaging>=25.0",
+    # Build system.
+    "fusesoc==2.4.3",
+    "ruff>=0.9.6",
+    "reuse>=5.0.2",
+    # Design verification runner.
+    "dvsim>=1.33",
+    "pyelftools>=0.32",
+    # Tool schema validation.
+    "jsonschema>=4.26.0",
+    "types-jsonschema>=4.26.0",
+]
+
+[tool.setuptools]
+py-modules = []
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = []
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "SIM", "PTH", "C4", "A", "RUF", "PERF"]
+
+[tool.ruff.lint.isort]
+# Standard library from 3.11, and the devshell's Python is newer than the 3.10
+# the target version keeps the rest of the tree compatible with.
+extra-standard-library = ["tomllib"]

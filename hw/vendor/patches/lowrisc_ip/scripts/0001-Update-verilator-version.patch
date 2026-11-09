@@ -1,0 +1,13 @@
+diff --git a/tool_requirements.py b/tool_requirements.py
+index ad4aaa4..8e775d5 100644
+--- a/tool_requirements.py
++++ b/tool_requirements.py
+@@ -23,7 +23,7 @@ __TOOL_REQUIREMENTS__ = {
+         'as_needed': True
+     },
+     'verilator': {
+-        'min_version': '5.048',
++        'min_version': '5.054',
+         'as_needed': True
+     },
+     'hugo_extended': {

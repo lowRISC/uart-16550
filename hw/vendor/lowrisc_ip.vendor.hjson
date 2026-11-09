@@ -23,6 +23,6 @@
         // Tool version checks used by the lint cores
         {from: "hw/check_tool_requirements.core", to: "check_tool_requirements.core"},
         {from: "hw/check_tool_requirements.py",   to: "check_tool_requirements.py"},
-        {from: "hw/tool_requirements.py",         to: "tool_requirements.py"},
+        {from: "hw/tool_requirements.py",         to: "tool_requirements.py",   patch_dir: "scripts"},
     ]
 }
