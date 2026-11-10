@@ -17,3 +17,12 @@ A passing run will display `Test passed!`; a failing run will display `Test fail
 
 [opentitan-uart]: https://github.com/lowRISC/opentitan/tree/master/hw/ip/uart
 [16550-spec]: https://web.archive.org/web/20180826215135/http://www.ti.com/lit/ds/symlink/pc16550d.pdf
+
+## Contributing
+
+Feel free to open issues if you have any questions or would like to contribute.
+We recommend opening an issue to discuss a contribution before preparing a pull request.
+
+## License
+
+Unless otherwise noted, everything in this repository is covered by the Apache License, Version 2.0 (see [LICENSE](https://github.com/lowRISC/uart-16550/blob/main/LICENSE) for full text).
