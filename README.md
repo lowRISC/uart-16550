@@ -1,6 +1,9 @@
-# UART 16550 Hardware IP Block
+# UART 16550 Hardware IP Repository
 
 This repository contains a wrapper around [OpenTitan's well-verified UART hardware IP block][opentitan-uart] in order to support the common [16550 specification][16550-spec].
+
+> [!IMPORTANT]
+> The design for this IP is incomplete and the RTL will change significantly. This IP is also not well verified.
 
 ## Initial build
 
