@@ -1,0 +1,8 @@
+# Licenses and Copyright for IPs
+
+version = 1
+
+[[annotations]]
+path = ["uart16550/**"]
+SPDX-License-Identifier = "Apache-2.0"
+SPDX-FileCopyrightText = ["lowRISC and contributors (COSMIC project)."]
