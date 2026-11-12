@@ -20,9 +20,9 @@ module uart16550_translate(
   logic unused_sig;
   assign unused_sig = |{host_tl_i, uart_tl_i};
 
+  // TODO: LSR reads should only clear INTR_STATE bits previously set
   // TODO: incoming host req intg verify
   // TODO: inocoming uart resp intg verify
-  // TODO: request param verify
   // TODO: error resp from UART should prevent any 16550/OT state modification?
   // TODO: PutPartialData or size != 2 handling
   // TODO: unused fields in TL struct
@@ -77,6 +77,8 @@ module uart16550_translate(
   logic [top_pkg::TL_SZW-1:0] req_size_q;
   logic [top_pkg::TL_DBW-1:0] req_mask_d;
   logic [top_pkg::TL_DBW-1:0] req_mask_q;
+  logic [top_pkg::TL_AIW-1:0] req_source_d;
+  logic [top_pkg::TL_AIW-1:0] req_source_q;
 
   // Latched response parameters
   tlul_pkg::tl_d_op_e        resp_opcode_d;
@@ -128,18 +130,20 @@ module uart16550_translate(
 
   always_comb begin : p_fsm
     // Default
-    state_d           = state_q;
-    host_tl_o         = tlul_pkg::TL_D2H_DEFAULT;
-    host_tl_o.a_ready = 1'b0; // Not ready for a new request by default
-    host_tl_o.d_size  = req_size_q;
-    uart_tl_o         = tlul_pkg::TL_H2D_DEFAULT;
-    uart_tl_o.a_size  = 2;
-    uart_tl_o.a_mask = '1;
+    state_d             = state_q;
+    host_tl_o           = tlul_pkg::TL_D2H_DEFAULT;
+    host_tl_o.a_ready   = 1'b0;         // Not ready for a new request by default
+    host_tl_o.d_size    = req_size_q;   // Return size of the request
+    host_tl_o.d_source  = req_source_q; // Return source of the request
+    uart_tl_o           = tlul_pkg::TL_H2D_DEFAULT;
+    uart_tl_o.a_size    = 2;
+    uart_tl_o.a_mask    = '1;
 
     req_opcode_d = req_opcode_q;
     req_data_d = req_data_q;
     req_size_d = req_size_q;
     req_mask_d = req_mask_q;
+    req_source_d = req_source_q;
     resp_opcode_d = resp_opcode_q;
     resp_data_d = resp_data_q;
     resp_error_d = resp_error_q;
@@ -178,6 +182,7 @@ module uart16550_translate(
           req_data_d = host_tl_i.a_data;
           req_size_d = host_tl_i.a_size;
           req_mask_d = host_tl_i.a_mask;
+          req_source_d = host_tl_i.a_source;
 
           req_step_d = 2'h0;
 
@@ -911,6 +916,7 @@ module uart16550_translate(
       dll_q <= '0;
       dlm_q <= '0;
       req_size_q <= '0;
+      req_source_q <= '0;
     end else begin
       edssi_q <= edssi_d;
       fifo_en_q <= fifo_en_d;
@@ -929,6 +935,7 @@ module uart16550_translate(
       dll_q <= dll_d;
       dlm_q <= dlm_d;
       req_size_q <= req_size_d;
+      req_source_q <= req_source_d;
     end
   end
 
