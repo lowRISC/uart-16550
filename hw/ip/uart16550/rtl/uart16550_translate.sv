@@ -187,7 +187,7 @@ module uart16550_translate(
           req_step_d = 2'h0;
 
           // Decode request
-          unique case (host_tl_i.a_address)
+          unique case (host_tl_i.a_address[4:0])
             'h0: begin
               if (!dlab_q) begin
                 state_d = FifoReqSt;

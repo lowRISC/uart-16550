@@ -170,7 +170,9 @@ begin
   req_tl_h2d.a_param   = '0;
   req_tl_h2d.a_size    = 2;
   req_tl_h2d.a_source  = exp_d_source;
-  req_tl_h2d.a_address = (top_pkg::TL_AW)'(a) << $clog2(top_pkg::TL_DBW);
+  req_tl_h2d.a_address                               = $urandom(); // Unused address bits are randomised
+  req_tl_h2d.a_address[0 +: $clog2(top_pkg::TL_DBW)] = '0;  // Address is word aligned
+  req_tl_h2d.a_address[$clog2(top_pkg::TL_DBW) +: 3] = a;   // Register ID
   req_tl_h2d.a_mask    = 4'hF;
   req_tl_h2d.a_data    = data_in;
   req_tl_h2d.a_user    = '{
