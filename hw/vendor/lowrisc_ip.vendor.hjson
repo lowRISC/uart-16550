@@ -29,4 +29,14 @@
         {from: "util/lint_commits.py",        to: "util/lint_commits.py"},
         {from: "ci/scripts/lint-commits.sh",  to: "ci/scripts/lint-commits.sh", patch_dir: "ci"},
     ]
+
+    exclude_from_upstream: [
+        // Parts of lowRISC IPs not needed by the wrapper
+        "hw/ip/prim/dv",
+        "hw/ip/prim/fpv",
+        "hw/ip/prim/pre_dv",
+        "hw/ip/prim/util",
+        "hw/ip/tlul/generic_dv",
+        "hw/ip/uart/dv",
+    ]
 }
