@@ -144,8 +144,9 @@ task uart_req(
   input logic [top_pkg::TL_DW-1:0] exp_data_out
 );
 
-tlul_pkg::tl_h2d_t  req_tl_h2d;
-tlul_pkg::tl_d_op_e exp_d_opcode;
+tlul_pkg::tl_h2d_t          req_tl_h2d;
+tlul_pkg::tl_d_op_e         exp_d_opcode;
+logic [top_pkg::TL_AIW-1:0] exp_d_source;
 
 begin
   // Set expected device opcode
@@ -154,6 +155,9 @@ begin
   end else begin
     exp_d_opcode = tlul_pkg::AccessAckData;
   end
+
+  // Set expected source
+  exp_d_source = top_pkg::TL_AIW'($urandom());
 
   // Send request
   @(posedge clk);
@@ -165,7 +169,7 @@ begin
   end
   req_tl_h2d.a_param   = '0;
   req_tl_h2d.a_size    = 2;
-  req_tl_h2d.a_source  = '0;
+  req_tl_h2d.a_source  = exp_d_source;
   req_tl_h2d.a_address = (top_pkg::TL_AW)'(a) << $clog2(top_pkg::TL_DBW);
   req_tl_h2d.a_mask    = 4'hF;
   req_tl_h2d.a_data    = data_in;
@@ -211,7 +215,7 @@ begin
     $warning("[t=%0t] d_size test failed!", $time());
     has_assert_fail = 1;
   end
-  assert(tl_o.d_source == '0) else begin
+  assert(tl_o.d_source == exp_d_source) else begin
     $warning("[t=%0t] d_source test failed!", $time());
     has_assert_fail = 1;
   end
