@@ -20,7 +20,6 @@ module uart16550_translate(
   logic unused_sig;
   assign unused_sig = |{host_tl_i, uart_tl_i};
 
-  // TODO: LSR reads should only clear INTR_STATE bits previously set
   // TODO: incoming host req intg verify
   // TODO: inocoming uart resp intg verify
   // TODO: error resp from UART should prevent any 16550/OT state modification?
@@ -652,12 +651,13 @@ module uart16550_translate(
         end else begin
           uart_tl_o.a_address = 'h0; // INTR_STATE reg
         end
-        // Clear interrupts if this is a write to INTR_STATE
+        // Clear interrupts that were raised if this is a write to INTR_STATE
+        // Reuse resp_data_q[4:1] set in LSRReqWaitSt when req_step_q == 1
         uart_tl_o.a_data = '0;
-        uart_tl_o.a_data[3] = 1'b1; // Clear rx_overflow
-        uart_tl_o.a_data[4] = 1'b1; // Clear rx_frame_err
-        uart_tl_o.a_data[5] = 1'b1; // Clear rx_break_err
-        uart_tl_o.a_data[7] = 1'b1; // Clear rx_parity_err
+        uart_tl_o.a_data[3] = resp_data_q[1]; // Clear rx_overflow if it was set
+        uart_tl_o.a_data[4] = resp_data_q[3]; // Clear rx_frame_err if it was set
+        uart_tl_o.a_data[5] = resp_data_q[4]; // Clear rx_break_err if it was set
+        uart_tl_o.a_data[7] = resp_data_q[2]; // Clear rx_parity_err if it was set
 
         if (uart_tl_i.a_ready) begin
           state_d = LSRReqWaitSt;
