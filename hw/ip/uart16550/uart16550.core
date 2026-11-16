@@ -13,6 +13,7 @@ filesets:
       - lowrisc:ip:uart
     files:
       - rtl/uart16550_translate.sv
+      - rtl/uart16550_init.sv
       - rtl/uart16550.sv
     file_type: systemVerilogSource
 
