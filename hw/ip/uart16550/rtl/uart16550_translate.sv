@@ -36,9 +36,12 @@ module uart16550_translate(
   localparam int StateWidth = 10;
   typedef enum logic [StateWidth-1:0] {
     IdleSt              = 10'b1110001010,
-    FifoReqSt       = 10'b1001000001,
-    FifoReqWaitSt       = 10'b0010101101,
-    FifoRespSt    = 10'b1101101100,
+    RBRReqSt     = 10'b1001000001,
+    RBRReqWaitSt = 10'b0010101101,
+    RBRRespSt    = 10'b1101101100,
+    THRReqSt     = 10'h11,
+    THRReqWaitSt = 10'h12,
+    THRRespSt    = 10'h13,
     IERReqSt     = 10'b0111110000,
     IERReqWaitSt  = 10'b1000110110,
     IERRespSt      = 10'b1011111011,
@@ -189,7 +192,11 @@ module uart16550_translate(
           unique case (host_tl_i.a_address[4:0])
             'h0: begin
               if (!dlab_q) begin
-                state_d = FifoReqSt;
+                if (host_tl_i.a_opcode == tlul_pkg::Get) begin
+                  state_d = RBRReqSt;
+                end else begin
+                  state_d = THRReqSt;
+                end
               end else begin
                 // Override step to 0, this identifies access to DLL
                 req_step_d = 2'h0;
@@ -260,34 +267,83 @@ module uart16550_translate(
           endcase
         end
       end
-      // Passthrough request to R/W FIFO
-      FifoReqSt: begin
+      // RBR read: send request to UART
+      RBRReqSt: begin
+        // Write INTR_STATE / read RDATA
         uart_tl_o.a_valid = 1;
-        if (req_opcode_q == tlul_pkg::Get) begin
+        if (req_step_q == 0) begin
           uart_tl_o.a_opcode  = tlul_pkg::Get;
           uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_RDATA_OFFSET);
+          uart_tl_o.a_data    = '1;
         end else begin
           uart_tl_o.a_opcode  = tlul_pkg::PutFullData;
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_WDATA_OFFSET);
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
+          // Clear rx_timeout interrupt if it was set
+          uart_tl_o.a_data    = '0;
+          uart_tl_o.a_data[6] = 1'b1; // Clear rx_timeout
         end
-        uart_tl_o.a_data = req_data_q;
 
         if (uart_tl_i.a_ready) begin
-          state_d = FifoReqWaitSt;
+          state_d = RBRReqWaitSt;
         end
       end
-      // Wait for FIFO response from UART
-      FifoReqWaitSt: begin
+      // RBR read: wait for response from UART
+      RBRReqWaitSt: begin
+        if (uart_tl_i.d_valid) begin
+          resp_opcode_d = uart_tl_i.d_opcode;
+          if (req_step_q == 0) begin
+            resp_data_d = uart_tl_i.d_data;
+            resp_error_d = uart_tl_i.d_error;
+          end else begin
+            // Do not store response data from the write
+            resp_error_d = resp_error_q | uart_tl_i.d_error;
+          end
+
+          if (req_step_q == 0) begin
+            // Next step, access another register
+            req_step_d = req_step_q + 1;
+            state_d = RBRReqSt;
+          end else begin
+            // UART accesses done
+            state_d = RBRRespSt;
+          end
+        end
+      end
+      // RBR read: send response to host
+      RBRRespSt: begin
+        host_tl_o.d_valid  = 1'b1;
+        host_tl_o.d_opcode = tlul_pkg::AccessAckData;
+        host_tl_o.d_data   = resp_data_q;
+        host_tl_o.d_error  = resp_error_q;
+
+        if (host_tl_i.d_ready) begin
+          state_d = IdleSt;
+        end
+      end
+      // THR write: send request to UART
+      THRReqSt: begin
+        // Write WDATA
+        uart_tl_o.a_valid   = 1;
+        uart_tl_o.a_opcode  = tlul_pkg::PutFullData;
+        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_WDATA_OFFSET);
+        uart_tl_o.a_data    = req_data_q;
+
+        if (uart_tl_i.a_ready) begin
+          state_d = THRReqWaitSt;
+        end
+      end
+      // THR write: wait for response from UART
+      THRReqWaitSt: begin
         if (uart_tl_i.d_valid) begin
           resp_opcode_d = uart_tl_i.d_opcode;
           resp_data_d = uart_tl_i.d_data;
           resp_error_d = uart_tl_i.d_error;
 
-          state_d = FifoRespSt;
+          state_d = THRRespSt;
         end
       end
-      // Send FIFO response to host
-      FifoRespSt: begin
+      // THR write: send response to host
+      THRRespSt: begin
         host_tl_o.d_valid = 1'b1;
         host_tl_o.d_opcode = resp_opcode_q;
         host_tl_o.d_data = resp_data_q;
@@ -299,23 +355,42 @@ module uart16550_translate(
       end
       // IER access: send request to UART
       IERReqSt: begin
-        // Write to INTR_ENABLE
-        // No need for RMW as no other interrupt can be enabled
+        // Write to INTR_ENABLE / TIMEOUT_CTRL
         uart_tl_o.a_valid = 1;
         if (req_opcode_q == tlul_pkg::Get) begin
           uart_tl_o.a_opcode = tlul_pkg::Get;
         end else begin
           uart_tl_o.a_opcode = tlul_pkg::PutFullData;
         end
-        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
-        uart_tl_o.a_data = '0;
-        // 16550 to OT mapping
-        uart_tl_o.a_data[1] = req_data_q[0]; // rx_watermark = ERBFI
-        uart_tl_o.a_data[8] = req_data_q[1]; // tx_empty = ETBEI
-        uart_tl_o.a_data[3] = req_data_q[2]; // rx_overflow = ELSI
-        uart_tl_o.a_data[4] = req_data_q[2]; // rx_frame_err = ELSI
-        uart_tl_o.a_data[5] = req_data_q[2]; // rx_break_err = ELSI
-        uart_tl_o.a_data[7] = req_data_q[2]; // rx_parity_err = ELSI
+        if (req_step_q == 0) begin
+          // No need for RMW as no other interrupt can be enabled
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
+          uart_tl_o.a_data = '0;
+          // 16550 to OT mapping
+          uart_tl_o.a_data[1] = req_data_q[0]; // rx_watermark = ERBFI
+          uart_tl_o.a_data[6] = req_data_q[0]; // rx_timeout = ERBFI
+          uart_tl_o.a_data[8] = req_data_q[1]; // tx_empty = ETBEI
+          uart_tl_o.a_data[3] = req_data_q[2]; // rx_overflow = ELSI
+          uart_tl_o.a_data[4] = req_data_q[2]; // rx_frame_err = ELSI
+          uart_tl_o.a_data[5] = req_data_q[2]; // rx_break_err = ELSI
+          uart_tl_o.a_data[7] = req_data_q[2]; // rx_parity_err = ELSI
+        end else begin
+          // Update Rx timeout bit time when interrupt enables are written
+          // Since interrupts are disabled by default, updating timeout here has no
+          // observable difference to updating it at initialisation.
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_TIMEOUT_CTRL_OFFSET);
+          uart_tl_o.a_data = '0;
+          if (pen_q) begin
+            // Parity enabled
+            // 4 character times is 4*(1 + 8 + 1 + 1) = 44 bit times
+            uart_tl_o.a_data[23:0] = 24'd44;
+          end else begin
+            // Parity disabled
+            // 4 character times is 4*(1 + 8 + 1) = 40 bit times
+            uart_tl_o.a_data[23:0] = 24'd40;
+          end
+          uart_tl_o.a_data[31] = 1'b1;  // EN = 1
+        end
 
         // EDSSI write logic
         // This register has no effect but the value is kept
@@ -334,7 +409,17 @@ module uart16550_translate(
           resp_data_d = uart_tl_i.d_data;
           resp_error_d = uart_tl_i.d_error;
 
-          state_d = IERRespSt;
+          if (req_opcode_q == tlul_pkg::Get) begin
+            // Reads do not require access to TIMEOUT_CTRL
+            state_d = IERRespSt;
+          end else if (req_step_q == 0) begin
+            // Next step, write another register
+            req_step_d = 1;
+            state_d = IERReqSt;
+          end else begin
+            // UART writes done
+            state_d = IERRespSt;
+          end
         end
       end
       // IER access: send response to host
@@ -344,13 +429,14 @@ module uart16550_translate(
         if (req_opcode_q == tlul_pkg::Get) begin
           // OT to 16550 mapping
           host_tl_o.d_data = '0;
-          host_tl_o.d_data[0] = resp_data_q[1]; // ERBFI = rx_watermark
-          host_tl_o.d_data[1] = resp_data_q[8]; // ETBEI = tx_empty
+          host_tl_o.d_data[0] = (resp_data_q[1] & // ERBFI = rx_watermark &
+                                 resp_data_q[6]); //         rx_timeout
+          host_tl_o.d_data[1] = resp_data_q[8];   // ETBEI = tx_empty
           host_tl_o.d_data[2] = (resp_data_q[3] & // ELSI = rx_overflow &
-                                resp_data_q[4] & //        rx_frame_err &
-                                resp_data_q[5] & //        rx_break_err &
-                                resp_data_q[7]); //        rx_parity_err
-          host_tl_o.d_data[3] = edssi_q;        // EDSSI read back
+                                 resp_data_q[4] & //        rx_frame_err &
+                                 resp_data_q[5] & //        rx_break_err &
+                                 resp_data_q[7]); //        rx_parity_err
+          host_tl_o.d_data[3] = edssi_q;          // EDSSI read back
         end else begin
           host_tl_o.d_data = '1;
         end
@@ -405,27 +491,23 @@ module uart16550_translate(
         // OT to 16550 mapping
         host_tl_o.d_data = '0;
         // Interrupt pending, active low
-        host_tl_o.d_data[0] = ~(resp_data_q[1] |
-                                resp_data_q[3] |
-                                resp_data_q[4] |
-                                resp_data_q[5] |
-                                resp_data_q[7] |
-                                resp_data_q[8]);
+        host_tl_o.d_data[0] = ~(|{resp_data_q[8:3], resp_data_q[1]});
         if (resp_data_q[3] || resp_data_q[4] || resp_data_q[5] || resp_data_q[7]) begin
           // Receiver line status has highest priority
-          host_tl_o.d_data[2:1] = 2'b11;
+          host_tl_o.d_data[3:1] = 3'b011;
         end else if (resp_data_q[1]) begin
           // Received data available has highest priority
-          host_tl_o.d_data[2:1] = 2'b10;
+          host_tl_o.d_data[3:1] = 3'b010;
+        end else if (resp_data_q[6]) begin
+          // Character timeout indication has highest priority
+          host_tl_o.d_data[3:1] = 3'b110;
         end else if (resp_data_q[8]) begin
           // Transmitter holding register empty has highest priority
-          host_tl_o.d_data[2:1] = 2'b01;
+          host_tl_o.d_data[3:1] = 3'b001;
         end else begin
           // MODEM status has highest priority or no pending interrupt
-          host_tl_o.d_data[2:1] = 2'b00;
+          host_tl_o.d_data[3:1] = 3'b000;
         end
-        // Bit 3 = FIFO enable AND timeout error
-        host_tl_o.d_data[3] = fifo_en_q & resp_data_q[3];
         // Bit 6,7 = FIFO enable
         host_tl_o.d_data[6] = fifo_en_q;
         host_tl_o.d_data[7] = fifo_en_q;
@@ -437,22 +519,29 @@ module uart16550_translate(
       end
       // FCR write: send request to UART
       FCRReqSt: begin
-        // Write FIFO_CTRL
+        // Write FIFO_CTRL / INTR_STATE
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_FIFO_CTRL_OFFSET);
-        // 16550 to OT mapping
-        uart_tl_o.a_data = '0;
-        uart_tl_o.a_data[0] = req_data_q[1]; // RXRST = RCVR FIFO reset
-        uart_tl_o.a_data[1] = req_data_q[2]; // TXRST = XMIT FIFO reset
-        // RXILVL mapped from RCVR trigger
-        unique case (req_data_q[7:6])
-          2'b00: uart_tl_o.a_data[4:2] = 3'h0; // 1 char == 1 byte
-          2'b01: uart_tl_o.a_data[4:2] = 3'h2; // 4 char == 4 bytes
-          2'b10: uart_tl_o.a_data[4:2] = 3'h3; // 8 char == 8 bytes
-          2'b11: uart_tl_o.a_data[4:2] = 3'h4; // 16 char ~= 14 bytes
-          default: ;
-        endcase
+        if (req_step_q == 0) begin
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_FIFO_CTRL_OFFSET);
+          // 16550 to OT mapping
+          uart_tl_o.a_data = '0;
+          uart_tl_o.a_data[0] = req_data_q[1]; // RXRST = RCVR FIFO reset
+          uart_tl_o.a_data[1] = req_data_q[2]; // TXRST = XMIT FIFO reset
+          // RXILVL mapped from RCVR trigger
+          unique case (req_data_q[7:6])
+            2'b00: uart_tl_o.a_data[4:2] = 3'h0; // 1 char == 1 byte
+            2'b01: uart_tl_o.a_data[4:2] = 3'h2; // 4 char == 4 bytes
+            2'b10: uart_tl_o.a_data[4:2] = 3'h3; // 8 char == 8 bytes
+            2'b11: uart_tl_o.a_data[4:2] = 3'h4; // 16 char ~= 14 bytes
+            default: ;
+          endcase
+        end else begin
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
+          // Clear rx_timeout interrupt if RCVR FIFO was reset
+          uart_tl_o.a_data    = '0;
+          uart_tl_o.a_data[6] = req_data_q[1]; // Clear rx_timeout conditionally
+        end
 
         // FIFO enable write
         fifo_en_d = req_data_q[0];
@@ -471,7 +560,14 @@ module uart16550_translate(
           resp_data_d = uart_tl_i.d_data;
           resp_error_d = uart_tl_i.d_error;
 
-          state_d = FCRRespSt;
+          if (req_step_q == 0) begin
+            // Next step, write another register
+            req_step_d = req_step_q + 1;
+            state_d = FCRReqSt;
+          end else begin
+            // UART writes done
+            state_d = FCRRespSt;
+          end
         end
       end
       // FCR write: send response to host
@@ -487,13 +583,15 @@ module uart16550_translate(
       end
       // LCR write: send request to UART
       LCRReqSt: begin
-        // Write CTRL / OVRD
+        // Write CTRL / OVRD / TIMEOUT_CTRL
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
         if (req_step_q == 0) begin
           uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
-        end else begin
+        end else if (req_step_q == 1) begin
           uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_OVRD_OFFSET);
+        end else begin
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_TIMEOUT_CTRL_OFFSET);
         end
         // 16550 to OT mapping
         if (req_step_q == 0) begin
@@ -506,11 +604,23 @@ module uart16550_translate(
           uart_tl_o.a_data[6] = pen_d; // PARITY_EN = PEN
           uart_tl_o.a_data[7] = ~eps_d; // PARITY_ODD = !EPS
           uart_tl_o.a_data[31:16] = 16'd20972; // NCO default value
-        end else begin
+        end else if (req_step_q == 1) begin
           break_d = req_data_q[6];
           uart_tl_o.a_data = '0;
           uart_tl_o.a_data[0] = break_d; // TXEN = break
           uart_tl_o.a_data[1] = 1'b0; // TXVAL = 0
+        end else begin
+          uart_tl_o.a_data = '0;
+          if (pen_q) begin
+            // Parity enabled
+            // 4 character times is 4*(1 + 8 + 1 + 1) = 44 bit times
+            uart_tl_o.a_data[23:0] = 24'd44;
+          end else begin
+            // Parity disabled
+            // 4 character times is 4*(1 + 8 + 1) = 40 bit times
+            uart_tl_o.a_data[23:0] = 24'd40;
+          end
+          uart_tl_o.a_data[31] = 1'b1;  // EN = 1
         end
 
         // DLAB write
@@ -531,9 +641,9 @@ module uart16550_translate(
             resp_error_d = resp_error_q | uart_tl_i.d_error;
           end
 
-          if (req_step_q == 0) begin
+          if (req_step_q != 2) begin
             // Next step, write another register
-            req_step_d = 1;
+            req_step_d = req_step_q + 1;
             state_d = LCRReqSt;
           end else begin
             // UART writes done
