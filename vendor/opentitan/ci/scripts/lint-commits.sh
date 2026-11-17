@@ -25,7 +25,7 @@ echo "Checking commit messages since $merge_base"
 #   merges to keep a linear history, which makes merge commits disappear
 #   ultimately, making them only a CI artifact which should not be
 #   checked.
-hw/vendor/lowrisc_ip/util/lint_commits.py \
+vendor/opentitan/util/lint_commits.py \
   --no-merges \
   --error-msg-prefix="::error::" \
   --warning-msg-prefix="::warning::" \
