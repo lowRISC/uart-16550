@@ -1,0 +1,14 @@
+diff --git a/ip_block.py b/ip_block.py
+index 3d5b0ef..43ac3a4 100644
+--- a/ip_block.py
++++ b/ip_block.py
+@@ -72,7 +72,8 @@ KNOWN_CIP_IDS = {
+     45: 'rram_ctrl',
+     46: 'rram_macro',
+     47: 'i3c',
+-    48: 'cheriot_mem_sys'
++    48: 'cheriot_mem_sys',
++    49: 'uart16550'
+ }
+ 
+ REQUIRED_ALIAS_FIELDS = {

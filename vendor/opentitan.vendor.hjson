@@ -31,7 +31,7 @@
 
         // Reggen and its dependencies
         {from: "util/design",           to: "util/design"},
-        {from: "util/reggen",           to: "util/reggen"},
+        {from: "util/reggen",           to: "util/reggen",  patch_dir: "reggen"},
         {from: "util/regtool.py",       to: "util/regtool.py"},
         {from: "util/version_file.py",  to: "util/version_file.py"},
     ]
