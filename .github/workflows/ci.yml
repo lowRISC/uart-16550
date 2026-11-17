@@ -43,4 +43,4 @@ jobs:
 
       - name: Commit metadata check
         if: ${{ github.event_name == 'pull_request' }}
-        run: hw/vendor/lowrisc_ip/ci/scripts/lint-commits.sh "$GITHUB_BASE_REF"
+        run: vendor/opentitan/ci/scripts/lint-commits.sh "$GITHUB_BASE_REF"

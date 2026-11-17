@@ -2,9 +2,9 @@
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 {
-    name: "lowrisc_ip",
-    target_dir: "lowrisc_ip",
-    patch_dir: "patches/lowrisc_ip",
+    name: "opentitan",
+    target_dir: "opentitan",
+    patch_dir: "patches/opentitan",
 
     upstream: {
         url: "https://github.com/lowRISC/opentitan"

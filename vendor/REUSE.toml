@@ -3,7 +3,7 @@
 version = 1
 
 [[annotations]]
-path = ["lowrisc_ip/**"]
+path = ["opentitan/**"]
 SPDX-License-Identifier = "Apache-2.0"
 SPDX-FileCopyrightText = ["lowRISC contributors (OpenTitan project)."]
 
