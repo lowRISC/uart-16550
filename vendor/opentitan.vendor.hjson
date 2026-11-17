@@ -28,6 +28,12 @@
         // Commit linting scripts
         {from: "util/lint_commits.py",        to: "util/lint_commits.py"},
         {from: "ci/scripts/lint-commits.sh",  to: "ci/scripts/lint-commits.sh", patch_dir: "ci"},
+
+        // Reggen and its dependencies
+        {from: "util/design",           to: "util/design"},
+        {from: "util/reggen",           to: "util/reggen"},
+        {from: "util/regtool.py",       to: "util/regtool.py"},
+        {from: "util/version_file.py",  to: "util/version_file.py"},
     ]
 
     exclude_from_upstream: [
