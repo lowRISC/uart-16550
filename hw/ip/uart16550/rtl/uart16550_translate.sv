@@ -20,6 +20,12 @@ module uart16550_translate(
   logic unused_sig;
   assign unused_sig = |{host_tl_i, uart_tl_i};
 
+  // TL-UL host D2H without integrity
+  tlul_pkg::tl_d2h_t host_tl_d2h_pre;
+
+  // TL-UL UART H2D without integrity
+  tlul_pkg::tl_h2d_t uart_tl_h2d_pre;
+
   // TODO: incoming host req intg verify
   // TODO: inocoming uart resp intg verify
   // TODO: error resp from UART should prevent any 16550/OT state modification?
@@ -132,14 +138,15 @@ module uart16550_translate(
 
   always_comb begin : p_fsm
     // Default
-    state_d             = state_q;
-    host_tl_o           = tlul_pkg::TL_D2H_DEFAULT;
-    host_tl_o.a_ready   = 1'b0;         // Not ready for a new request by default
-    host_tl_o.d_size    = req_size_q;   // Return size of the request
-    host_tl_o.d_source  = req_source_q; // Return source of the request
-    uart_tl_o           = tlul_pkg::TL_H2D_DEFAULT;
-    uart_tl_o.a_size    = 2;
-    uart_tl_o.a_mask    = '1;
+    state_d                           = state_q;
+    host_tl_d2h_pre                   = tlul_pkg::TL_D2H_DEFAULT;
+    host_tl_d2h_pre.a_ready           = 1'b0;         // Not ready for a new request by default
+    host_tl_d2h_pre.d_size            = req_size_q;   // Return size of the request
+    host_tl_d2h_pre.d_source          = req_source_q; // Return source of the request
+    uart_tl_h2d_pre                   = tlul_pkg::TL_H2D_DEFAULT;
+    uart_tl_h2d_pre.a_size            = 2;
+    uart_tl_h2d_pre.a_mask            = '1;
+    uart_tl_h2d_pre.a_user.instr_type = prim_mubi_pkg::MuBi4False;
 
     req_opcode_d = req_opcode_q;
     req_data_d = req_data_q;
@@ -173,7 +180,7 @@ module uart16550_translate(
       // Wait for new host request
       IdleSt: begin
         // Ready to accept a new request from the host
-        host_tl_o.a_ready = 1'b1;
+        host_tl_d2h_pre.a_ready = 1'b1;
 
         // Clear latched response data
         resp_data_d = '0;
@@ -270,17 +277,17 @@ module uart16550_translate(
       // RBR read: send request to UART
       RBRReqSt: begin
         // Write INTR_STATE / read RDATA
-        uart_tl_o.a_valid = 1;
+        uart_tl_h2d_pre.a_valid = 1;
         if (req_step_q == 0) begin
-          uart_tl_o.a_opcode  = tlul_pkg::Get;
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_RDATA_OFFSET);
-          uart_tl_o.a_data    = '1;
+          uart_tl_h2d_pre.a_opcode  = tlul_pkg::Get;
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_RDATA_OFFSET);
+          uart_tl_h2d_pre.a_data    = '1;
         end else begin
-          uart_tl_o.a_opcode  = tlul_pkg::PutFullData;
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
+          uart_tl_h2d_pre.a_opcode  = tlul_pkg::PutFullData;
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
           // Clear rx_timeout interrupt if it was set
-          uart_tl_o.a_data    = '0;
-          uart_tl_o.a_data[6] = 1'b1; // Clear rx_timeout
+          uart_tl_h2d_pre.a_data    = '0;
+          uart_tl_h2d_pre.a_data[6] = 1'b1; // Clear rx_timeout
         end
 
         if (uart_tl_i.a_ready) begin
@@ -311,10 +318,10 @@ module uart16550_translate(
       end
       // RBR read: send response to host
       RBRRespSt: begin
-        host_tl_o.d_valid  = 1'b1;
-        host_tl_o.d_opcode = tlul_pkg::AccessAckData;
-        host_tl_o.d_data   = resp_data_q;
-        host_tl_o.d_error  = resp_error_q;
+        host_tl_d2h_pre.d_valid  = 1'b1;
+        host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAckData;
+        host_tl_d2h_pre.d_data   = resp_data_q;
+        host_tl_d2h_pre.d_error  = resp_error_q;
 
         if (host_tl_i.d_ready) begin
           state_d = IdleSt;
@@ -323,10 +330,10 @@ module uart16550_translate(
       // THR write: send request to UART
       THRReqSt: begin
         // Write WDATA
-        uart_tl_o.a_valid   = 1;
-        uart_tl_o.a_opcode  = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_WDATA_OFFSET);
-        uart_tl_o.a_data    = req_data_q;
+        uart_tl_h2d_pre.a_valid   = 1;
+        uart_tl_h2d_pre.a_opcode  = tlul_pkg::PutFullData;
+        uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_WDATA_OFFSET);
+        uart_tl_h2d_pre.a_data    = req_data_q;
 
         if (uart_tl_i.a_ready) begin
           state_d = THRReqWaitSt;
@@ -344,10 +351,10 @@ module uart16550_translate(
       end
       // THR write: send response to host
       THRRespSt: begin
-        host_tl_o.d_valid = 1'b1;
-        host_tl_o.d_opcode = resp_opcode_q;
-        host_tl_o.d_data = resp_data_q;
-        host_tl_o.d_error = resp_error_q;
+        host_tl_d2h_pre.d_valid  = 1'b1;
+        host_tl_d2h_pre.d_opcode = resp_opcode_q;
+        host_tl_d2h_pre.d_data   = resp_data_q;
+        host_tl_d2h_pre.d_error  = resp_error_q;
 
         if (host_tl_i.d_ready) begin
           state_d = IdleSt;
@@ -356,40 +363,40 @@ module uart16550_translate(
       // IER access: send request to UART
       IERReqSt: begin
         // Write to INTR_ENABLE / TIMEOUT_CTRL
-        uart_tl_o.a_valid = 1;
+        uart_tl_h2d_pre.a_valid = 1;
         if (req_opcode_q == tlul_pkg::Get) begin
-          uart_tl_o.a_opcode = tlul_pkg::Get;
+          uart_tl_h2d_pre.a_opcode = tlul_pkg::Get;
         end else begin
-          uart_tl_o.a_opcode = tlul_pkg::PutFullData;
+          uart_tl_h2d_pre.a_opcode = tlul_pkg::PutFullData;
         end
         if (req_step_q == 0) begin
           // No need for RMW as no other interrupt can be enabled
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
-          uart_tl_o.a_data = '0;
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
+          uart_tl_h2d_pre.a_data    = '0;
           // 16550 to OT mapping
-          uart_tl_o.a_data[1] = req_data_q[0]; // rx_watermark = ERBFI
-          uart_tl_o.a_data[6] = req_data_q[0]; // rx_timeout = ERBFI
-          uart_tl_o.a_data[8] = req_data_q[1]; // tx_empty = ETBEI
-          uart_tl_o.a_data[3] = req_data_q[2]; // rx_overflow = ELSI
-          uart_tl_o.a_data[4] = req_data_q[2]; // rx_frame_err = ELSI
-          uart_tl_o.a_data[5] = req_data_q[2]; // rx_break_err = ELSI
-          uart_tl_o.a_data[7] = req_data_q[2]; // rx_parity_err = ELSI
+          uart_tl_h2d_pre.a_data[1] = req_data_q[0]; // rx_watermark = ERBFI
+          uart_tl_h2d_pre.a_data[6] = req_data_q[0]; // rx_timeout = ERBFI
+          uart_tl_h2d_pre.a_data[8] = req_data_q[1]; // tx_empty = ETBEI
+          uart_tl_h2d_pre.a_data[3] = req_data_q[2]; // rx_overflow = ELSI
+          uart_tl_h2d_pre.a_data[4] = req_data_q[2]; // rx_frame_err = ELSI
+          uart_tl_h2d_pre.a_data[5] = req_data_q[2]; // rx_break_err = ELSI
+          uart_tl_h2d_pre.a_data[7] = req_data_q[2]; // rx_parity_err = ELSI
         end else begin
           // Update Rx timeout bit time when interrupt enables are written
           // Since interrupts are disabled by default, updating timeout here has no
           // observable difference to updating it at initialisation.
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_TIMEOUT_CTRL_OFFSET);
-          uart_tl_o.a_data = '0;
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_TIMEOUT_CTRL_OFFSET);
+          uart_tl_h2d_pre.a_data    = '0;
           if (pen_q) begin
             // Parity enabled
             // 4 character times is 4*(1 + 8 + 1 + 1) = 44 bit times
-            uart_tl_o.a_data[23:0] = 24'd44;
+            uart_tl_h2d_pre.a_data[23:0] = 24'd44;
           end else begin
             // Parity disabled
             // 4 character times is 4*(1 + 8 + 1) = 40 bit times
-            uart_tl_o.a_data[23:0] = 24'd40;
+            uart_tl_h2d_pre.a_data[23:0] = 24'd40;
           end
-          uart_tl_o.a_data[31] = 1'b1;  // EN = 1
+          uart_tl_h2d_pre.a_data[31] = 1'b1;  // EN = 1
         end
 
         // EDSSI write logic
@@ -424,23 +431,23 @@ module uart16550_translate(
       end
       // IER access: send response to host
       IERRespSt: begin
-        host_tl_o.d_valid = 1'b1;
-        host_tl_o.d_opcode = resp_opcode_q;
+        host_tl_d2h_pre.d_valid  = 1'b1;
+        host_tl_d2h_pre.d_opcode = resp_opcode_q;
         if (req_opcode_q == tlul_pkg::Get) begin
           // OT to 16550 mapping
-          host_tl_o.d_data = '0;
-          host_tl_o.d_data[0] = (resp_data_q[1] & // ERBFI = rx_watermark &
-                                 resp_data_q[6]); //         rx_timeout
-          host_tl_o.d_data[1] = resp_data_q[8];   // ETBEI = tx_empty
-          host_tl_o.d_data[2] = (resp_data_q[3] & // ELSI = rx_overflow &
-                                 resp_data_q[4] & //        rx_frame_err &
-                                 resp_data_q[5] & //        rx_break_err &
-                                 resp_data_q[7]); //        rx_parity_err
-          host_tl_o.d_data[3] = edssi_q;          // EDSSI read back
+          host_tl_d2h_pre.d_data = '0;
+          host_tl_d2h_pre.d_data[0] = (resp_data_q[1] & // ERBFI = rx_watermark &
+                                       resp_data_q[6]); //         rx_timeout
+          host_tl_d2h_pre.d_data[1] = resp_data_q[8];   // ETBEI = tx_empty
+          host_tl_d2h_pre.d_data[2] = (resp_data_q[3] & // ELSI = rx_overflow &
+                                       resp_data_q[4] & //        rx_frame_err &
+                                       resp_data_q[5] & //        rx_break_err &
+                                       resp_data_q[7]); //        rx_parity_err
+          host_tl_d2h_pre.d_data[3] = edssi_q;          // EDSSI read back
         end else begin
-          host_tl_o.d_data = '1;
+          host_tl_d2h_pre.d_data = '1;
         end
-        host_tl_o.d_error = resp_error_q;
+        host_tl_d2h_pre.d_error = resp_error_q;
 
         if (host_tl_i.d_ready) begin
           state_d = IdleSt;
@@ -449,14 +456,14 @@ module uart16550_translate(
       // IIR read: send request to UART
       IIRReqSt: begin
         // Read INTR_STATE / INTR_ENABLE
-        uart_tl_o.a_valid = 1;
-        uart_tl_o.a_opcode = tlul_pkg::Get;
+        uart_tl_h2d_pre.a_valid  = 1;
+        uart_tl_h2d_pre.a_opcode = tlul_pkg::Get;
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
         end else begin
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
         end
-        uart_tl_o.a_data = '0;
+        uart_tl_h2d_pre.a_data = '0;
 
         if (uart_tl_i.a_ready) begin
           state_d = IIRReqWaitSt;
@@ -486,32 +493,32 @@ module uart16550_translate(
       end
       // IIR read: send response to host
       IIRRespSt: begin
-        host_tl_o.d_valid = 1'b1;
-        host_tl_o.d_opcode = resp_opcode_q;
+        host_tl_d2h_pre.d_valid  = 1'b1;
+        host_tl_d2h_pre.d_opcode = resp_opcode_q;
         // OT to 16550 mapping
-        host_tl_o.d_data = '0;
+        host_tl_d2h_pre.d_data = '0;
         // Interrupt pending, active low
-        host_tl_o.d_data[0] = ~(|{resp_data_q[8:3], resp_data_q[1]});
+        host_tl_d2h_pre.d_data[0] = ~(|{resp_data_q[8:3], resp_data_q[1]});
         if (resp_data_q[3] || resp_data_q[4] || resp_data_q[5] || resp_data_q[7]) begin
           // Receiver line status has highest priority
-          host_tl_o.d_data[3:1] = 3'b011;
+          host_tl_d2h_pre.d_data[3:1] = 3'b011;
         end else if (resp_data_q[1]) begin
           // Received data available has highest priority
-          host_tl_o.d_data[3:1] = 3'b010;
+          host_tl_d2h_pre.d_data[3:1] = 3'b010;
         end else if (resp_data_q[6]) begin
           // Character timeout indication has highest priority
-          host_tl_o.d_data[3:1] = 3'b110;
+          host_tl_d2h_pre.d_data[3:1] = 3'b110;
         end else if (resp_data_q[8]) begin
           // Transmitter holding register empty has highest priority
-          host_tl_o.d_data[3:1] = 3'b001;
+          host_tl_d2h_pre.d_data[3:1] = 3'b001;
         end else begin
           // MODEM status has highest priority or no pending interrupt
-          host_tl_o.d_data[3:1] = 3'b000;
+          host_tl_d2h_pre.d_data[3:1] = 3'b000;
         end
         // Bit 6,7 = FIFO enable
-        host_tl_o.d_data[6] = fifo_en_q;
-        host_tl_o.d_data[7] = fifo_en_q;
-        host_tl_o.d_error = resp_error_q;
+        host_tl_d2h_pre.d_data[6] = fifo_en_q;
+        host_tl_d2h_pre.d_data[7] = fifo_en_q;
+        host_tl_d2h_pre.d_error   = resp_error_q;
 
         if (host_tl_i.d_ready) begin
           state_d = IdleSt;
@@ -520,27 +527,27 @@ module uart16550_translate(
       // FCR write: send request to UART
       FCRReqSt: begin
         // Write FIFO_CTRL / INTR_STATE
-        uart_tl_o.a_valid = 1;
-        uart_tl_o.a_opcode = tlul_pkg::PutFullData;
+        uart_tl_h2d_pre.a_valid  = 1;
+        uart_tl_h2d_pre.a_opcode = tlul_pkg::PutFullData;
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_FIFO_CTRL_OFFSET);
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_FIFO_CTRL_OFFSET);
           // 16550 to OT mapping
-          uart_tl_o.a_data = '0;
-          uart_tl_o.a_data[0] = req_data_q[1]; // RXRST = RCVR FIFO reset
-          uart_tl_o.a_data[1] = req_data_q[2]; // TXRST = XMIT FIFO reset
+          uart_tl_h2d_pre.a_data    = '0;
+          uart_tl_h2d_pre.a_data[0] = req_data_q[1]; // RXRST = RCVR FIFO reset
+          uart_tl_h2d_pre.a_data[1] = req_data_q[2]; // TXRST = XMIT FIFO reset
           // RXILVL mapped from RCVR trigger
           unique case (req_data_q[7:6])
-            2'b00: uart_tl_o.a_data[4:2] = 3'h0; // 1 char == 1 byte
-            2'b01: uart_tl_o.a_data[4:2] = 3'h2; // 4 char == 4 bytes
-            2'b10: uart_tl_o.a_data[4:2] = 3'h3; // 8 char == 8 bytes
-            2'b11: uart_tl_o.a_data[4:2] = 3'h4; // 16 char ~= 14 bytes
+            2'b00: uart_tl_h2d_pre.a_data[4:2] = 3'h0; // 1 char == 1 byte
+            2'b01: uart_tl_h2d_pre.a_data[4:2] = 3'h2; // 4 char == 4 bytes
+            2'b10: uart_tl_h2d_pre.a_data[4:2] = 3'h3; // 8 char == 8 bytes
+            2'b11: uart_tl_h2d_pre.a_data[4:2] = 3'h4; // 16 char ~= 14 bytes
             default: ;
           endcase
         end else begin
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
           // Clear rx_timeout interrupt if RCVR FIFO was reset
-          uart_tl_o.a_data    = '0;
-          uart_tl_o.a_data[6] = req_data_q[1]; // Clear rx_timeout conditionally
+          uart_tl_h2d_pre.a_data    = '0;
+          uart_tl_h2d_pre.a_data[6] = req_data_q[1]; // Clear rx_timeout conditionally
         end
 
         // FIFO enable write
@@ -572,10 +579,10 @@ module uart16550_translate(
       end
       // FCR write: send response to host
       FCRRespSt: begin
-        host_tl_o.d_valid = 1'b1;
-        host_tl_o.d_opcode = resp_opcode_q;
-        host_tl_o.d_data = '1;
-        host_tl_o.d_error = resp_error_q;
+        host_tl_d2h_pre.d_valid  = 1'b1;
+        host_tl_d2h_pre.d_opcode = resp_opcode_q;
+        host_tl_d2h_pre.d_data   = '1;
+        host_tl_d2h_pre.d_error  = resp_error_q;
 
         if (host_tl_i.d_ready) begin
           state_d = IdleSt;
@@ -584,43 +591,43 @@ module uart16550_translate(
       // LCR write: send request to UART
       LCRReqSt: begin
         // Write CTRL / OVRD / TIMEOUT_CTRL
-        uart_tl_o.a_valid = 1;
-        uart_tl_o.a_opcode = tlul_pkg::PutFullData;
+        uart_tl_h2d_pre.a_valid  = 1;
+        uart_tl_h2d_pre.a_opcode = tlul_pkg::PutFullData;
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
         end else if (req_step_q == 1) begin
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_OVRD_OFFSET);
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_OVRD_OFFSET);
         end else begin
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_TIMEOUT_CTRL_OFFSET);
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_TIMEOUT_CTRL_OFFSET);
         end
         // 16550 to OT mapping
         if (req_step_q == 0) begin
           pen_d = req_data_q[3];
           eps_d = req_data_q[4];
-          uart_tl_o.a_data = '0;
-          uart_tl_o.a_data[0] = txrx_en_q; // TX = txrx_en
-          uart_tl_o.a_data[1] = txrx_en_q; // RX = txrx_en
-          uart_tl_o.a_data[4] = loop_q; // SLPBK = loop
-          uart_tl_o.a_data[6] = pen_d; // PARITY_EN = PEN
-          uart_tl_o.a_data[7] = ~eps_d; // PARITY_ODD = !EPS
-          uart_tl_o.a_data[31:16] = 16'd20972; // NCO default value
+          uart_tl_h2d_pre.a_data        = '0;
+          uart_tl_h2d_pre.a_data[0]     = txrx_en_q; // TX = txrx_en
+          uart_tl_h2d_pre.a_data[1]     = txrx_en_q; // RX = txrx_en
+          uart_tl_h2d_pre.a_data[4]     = loop_q;    // SLPBK = loop
+          uart_tl_h2d_pre.a_data[6]     = pen_d;     // PARITY_EN = PEN
+          uart_tl_h2d_pre.a_data[7]     = ~eps_d;    // PARITY_ODD = !EPS
+          uart_tl_h2d_pre.a_data[31:16] = 16'd20972; // NCO default value
         end else if (req_step_q == 1) begin
           break_d = req_data_q[6];
-          uart_tl_o.a_data = '0;
-          uart_tl_o.a_data[0] = break_d; // TXEN = break
-          uart_tl_o.a_data[1] = 1'b0; // TXVAL = 0
+          uart_tl_h2d_pre.a_data    = '0;
+          uart_tl_h2d_pre.a_data[0] = break_d; // TXEN = break
+          uart_tl_h2d_pre.a_data[1] = 1'b0; // TXVAL = 0
         end else begin
-          uart_tl_o.a_data = '0;
+          uart_tl_h2d_pre.a_data = '0;
           if (pen_q) begin
             // Parity enabled
             // 4 character times is 4*(1 + 8 + 1 + 1) = 44 bit times
-            uart_tl_o.a_data[23:0] = 24'd44;
+            uart_tl_h2d_pre.a_data[23:0] = 24'd44;
           end else begin
             // Parity disabled
             // 4 character times is 4*(1 + 8 + 1) = 40 bit times
-            uart_tl_o.a_data[23:0] = 24'd40;
+            uart_tl_h2d_pre.a_data[23:0] = 24'd40;
           end
-          uart_tl_o.a_data[31] = 1'b1;  // EN = 1
+          uart_tl_h2d_pre.a_data[31] = 1'b1;  // EN = 1
         end
 
         // DLAB write
@@ -653,29 +660,29 @@ module uart16550_translate(
       end
       // LCR access: send response to host
       LCRRespSt: begin
-        host_tl_o.d_valid = 1'b1;
+        host_tl_d2h_pre.d_valid = 1'b1;
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAckData;
+          host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAckData;
         end else begin
-          host_tl_o.d_opcode = resp_opcode_q;
+          host_tl_d2h_pre.d_opcode = resp_opcode_q;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
           // OT to 16550 mapping
-          host_tl_o.d_data = '0;
-          host_tl_o.d_data[1:0] = 2'b11; // WLS = 8 bits (non-adjustable)
-          host_tl_o.d_data[2] = 1'b0; // STB = 1 stop bit (non-adjustable)
-          host_tl_o.d_data[3] = pen_q; // PEN
-          host_tl_o.d_data[4] = eps_q; // EPS
-          host_tl_o.d_data[5] = 1'b0; // Stick parity not supported
-          host_tl_o.d_data[6] = break_q; // Set break
-          host_tl_o.d_data[7] = dlab_q; // DLAB
+          host_tl_d2h_pre.d_data      = '0;
+          host_tl_d2h_pre.d_data[1:0] = 2'b11;   // WLS = 8 bits (non-adjustable)
+          host_tl_d2h_pre.d_data[2]   = 1'b0;    // STB = 1 stop bit (non-adjustable)
+          host_tl_d2h_pre.d_data[3]   = pen_q;   // PEN
+          host_tl_d2h_pre.d_data[4]   = eps_q;   // EPS
+          host_tl_d2h_pre.d_data[5]   = 1'b0;    // Stick parity not supported
+          host_tl_d2h_pre.d_data[6]   = break_q; // Set break
+          host_tl_d2h_pre.d_data[7]   = dlab_q;  // DLAB
         end else begin
-          host_tl_o.d_data = '1;
+          host_tl_d2h_pre.d_data = '1;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_error = 1'b0;
+          host_tl_d2h_pre.d_error = 1'b0;
         end else begin
-          host_tl_o.d_error = resp_error_q;
+          host_tl_d2h_pre.d_error = resp_error_q;
         end
 
         if (host_tl_i.d_ready) begin
@@ -685,18 +692,18 @@ module uart16550_translate(
       // MCR write: send request to UART
       MCRReqSt: begin
         // Write CTRL
-        uart_tl_o.a_valid = 1;
-        uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
+        uart_tl_h2d_pre.a_valid   = 1;
+        uart_tl_h2d_pre.a_opcode  = tlul_pkg::PutFullData;
+        uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
         // 16550 to OT mapping
         loop_d = req_data_q[4]; // loop
-        uart_tl_o.a_data = '0;
-        uart_tl_o.a_data[0] = txrx_en_q; // TX = txrx_en
-        uart_tl_o.a_data[1] = txrx_en_q; // RX = txrx_en
-        uart_tl_o.a_data[4] = loop_d; // SLPBK = loop
-        uart_tl_o.a_data[6] = pen_q; // PARITY_EN = PEN
-        uart_tl_o.a_data[7] = ~eps_q; // PARITY_ODD = !EPS
-        uart_tl_o.a_data[31:16] = 16'd20972; // NCO default value
+        uart_tl_h2d_pre.a_data        = '0;
+        uart_tl_h2d_pre.a_data[0]     = txrx_en_q; // TX = txrx_en
+        uart_tl_h2d_pre.a_data[1]     = txrx_en_q; // RX = txrx_en
+        uart_tl_h2d_pre.a_data[4]     = loop_d;    // SLPBK = loop
+        uart_tl_h2d_pre.a_data[6]     = pen_q;     // PARITY_EN = PEN
+        uart_tl_h2d_pre.a_data[7]     = ~eps_q;    // PARITY_ODD = !EPS
+        uart_tl_h2d_pre.a_data[31:16] = 16'd20972; // NCO default value
 
         // MODEM control reg writes
         dtr_d = req_data_q[0];
@@ -720,27 +727,27 @@ module uart16550_translate(
       end
       // MCR access: send response to host
       MCRRespSt: begin
-        host_tl_o.d_valid = 1'b1;
+        host_tl_d2h_pre.d_valid = 1'b1;
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAckData;
+          host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAckData;
         end else begin
-          host_tl_o.d_opcode = resp_opcode_q;
+          host_tl_d2h_pre.d_opcode = resp_opcode_q;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
           // OT to 16550 mapping
-          host_tl_o.d_data = '0;
-          host_tl_o.d_data[0] = dtr_q; // DTR
-          host_tl_o.d_data[1] = rts_q; // RTS
-          host_tl_o.d_data[2] = out1_q; // OUT1
-          host_tl_o.d_data[3] = out2_q; // OUT2
-          host_tl_o.d_data[4] = loop_q; // loop
+          host_tl_d2h_pre.d_data    = '0;
+          host_tl_d2h_pre.d_data[0] = dtr_q;  // DTR
+          host_tl_d2h_pre.d_data[1] = rts_q;  // RTS
+          host_tl_d2h_pre.d_data[2] = out1_q; // OUT1
+          host_tl_d2h_pre.d_data[3] = out2_q; // OUT2
+          host_tl_d2h_pre.d_data[4] = loop_q; // loop
         end else begin
-          host_tl_o.d_data = '1;
+          host_tl_d2h_pre.d_data = '1;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_error = 1'b0;
+          host_tl_d2h_pre.d_error = 1'b0;
         end else begin
-          host_tl_o.d_error = resp_error_q;
+          host_tl_d2h_pre.d_error = resp_error_q;
         end
 
         if (host_tl_i.d_ready) begin
@@ -750,24 +757,24 @@ module uart16550_translate(
       // LSR read: send request to UART
       LSRReqSt: begin
         // Read STATUS / INTR_STATE / write INTR_STATE
-        uart_tl_o.a_valid = 1;
+        uart_tl_h2d_pre.a_valid = 1;
         if (req_step_q != 2) begin
-          uart_tl_o.a_opcode = tlul_pkg::Get;
+          uart_tl_h2d_pre.a_opcode = tlul_pkg::Get;
         end else begin
-          uart_tl_o.a_opcode = tlul_pkg::PutFullData;
+          uart_tl_h2d_pre.a_opcode = tlul_pkg::PutFullData;
         end
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_STATUS_OFFSET);
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_STATUS_OFFSET);
         end else begin
-          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
+          uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
         end
         // Clear interrupts that were raised if this is a write to INTR_STATE
         // Reuse resp_data_q[4:1] set in LSRReqWaitSt when req_step_q == 1
-        uart_tl_o.a_data = '0;
-        uart_tl_o.a_data[3] = resp_data_q[1]; // Clear rx_overflow if it was set
-        uart_tl_o.a_data[4] = resp_data_q[3]; // Clear rx_frame_err if it was set
-        uart_tl_o.a_data[5] = resp_data_q[4]; // Clear rx_break_err if it was set
-        uart_tl_o.a_data[7] = resp_data_q[2]; // Clear rx_parity_err if it was set
+        uart_tl_h2d_pre.a_data    = '0;
+        uart_tl_h2d_pre.a_data[3] = resp_data_q[1]; // Clear rx_overflow if it was set
+        uart_tl_h2d_pre.a_data[4] = resp_data_q[3]; // Clear rx_frame_err if it was set
+        uart_tl_h2d_pre.a_data[5] = resp_data_q[4]; // Clear rx_break_err if it was set
+        uart_tl_h2d_pre.a_data[7] = resp_data_q[2]; // Clear rx_parity_err if it was set
 
         if (uart_tl_i.a_ready) begin
           state_d = LSRReqWaitSt;
@@ -806,21 +813,21 @@ module uart16550_translate(
       end
       // LSR access: send response to host
       LSRRespSt: begin
-        host_tl_o.d_valid = 1'b1;
+        host_tl_d2h_pre.d_valid = 1'b1;
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAckData;
+          host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAckData;
         end else begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAck;
+          host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAck;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_data = resp_data_d;
+          host_tl_d2h_pre.d_data = resp_data_d;
         end else begin
-          host_tl_o.d_data = '1;
+          host_tl_d2h_pre.d_data = '1;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_error = resp_error_q;
+          host_tl_d2h_pre.d_error = resp_error_q;
         end else begin
-          host_tl_o.d_error = 1'b0;
+          host_tl_d2h_pre.d_error = 1'b0;
         end
 
         if (host_tl_i.d_ready) begin
@@ -829,27 +836,27 @@ module uart16550_translate(
       end
       // MSR access: send response to host
       MSRRespSt: begin
-        host_tl_o.d_valid = 1'b1;
+        host_tl_d2h_pre.d_valid = 1'b1;
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAckData;
+          host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAckData;
         end else begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAck;
+          host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAck;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_data = '0;
+          host_tl_d2h_pre.d_data = '0;
           // OT to 16550 mapping
-          host_tl_o.d_data[0] = 1'b0; // DCTS = 0
-          host_tl_o.d_data[1] = 1'b0; // DDSR = 0
-          host_tl_o.d_data[2] = 1'b0; // TERI = 0
-          host_tl_o.d_data[3] = 1'b0; // DDCD = 0
-          host_tl_o.d_data[4] = loop_q & rts_q; // CTS = if loop RTS else 0
-          host_tl_o.d_data[5] = loop_q & dtr_q; // DSR = if loop DTR else 0
-          host_tl_o.d_data[6] = loop_q & out1_q; // RI = if loop OUT1 else 0
-          host_tl_o.d_data[7] = loop_q & out2_q; // DCD = if loop OUT2 else 0
+          host_tl_d2h_pre.d_data[0] = 1'b0; // DCTS = 0
+          host_tl_d2h_pre.d_data[1] = 1'b0; // DDSR = 0
+          host_tl_d2h_pre.d_data[2] = 1'b0; // TERI = 0
+          host_tl_d2h_pre.d_data[3] = 1'b0; // DDCD = 0
+          host_tl_d2h_pre.d_data[4] = loop_q & rts_q;  // CTS = if loop RTS else 0
+          host_tl_d2h_pre.d_data[5] = loop_q & dtr_q;  // DSR = if loop DTR else 0
+          host_tl_d2h_pre.d_data[6] = loop_q & out1_q; // RI = if loop OUT1 else 0
+          host_tl_d2h_pre.d_data[7] = loop_q & out2_q; // DCD = if loop OUT2 else 0
         end else begin
-          host_tl_o.d_data = '1;
+          host_tl_d2h_pre.d_data = '1;
         end
-        host_tl_o.d_error = 1'b0;
+        host_tl_d2h_pre.d_error = 1'b0;
 
         if (host_tl_i.d_ready) begin
           state_d = IdleSt;
@@ -863,19 +870,19 @@ module uart16550_translate(
         end
 
         // Send host response
-        host_tl_o.d_valid = 1'b1;
+        host_tl_d2h_pre.d_valid = 1'b1;
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAckData;
+          host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAckData;
         end else begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAck;
+          host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAck;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_data = '0;
-          host_tl_o.d_data[7:0] = scr_q;
+          host_tl_d2h_pre.d_data      = '0;
+          host_tl_d2h_pre.d_data[7:0] = scr_q;
         end else begin
-          host_tl_o.d_data = '1;
+          host_tl_d2h_pre.d_data = '1;
         end
-        host_tl_o.d_error = 1'b0;
+        host_tl_d2h_pre.d_error = 1'b0;
 
         if (host_tl_i.d_ready) begin
           state_d = IdleSt;
@@ -887,17 +894,17 @@ module uart16550_translate(
         txrx_en_d = 1'b1;
 
         // Write CTRL
-        uart_tl_o.a_valid = 1;
-        uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
+        uart_tl_h2d_pre.a_valid   = 1;
+        uart_tl_h2d_pre.a_opcode  = tlul_pkg::PutFullData;
+        uart_tl_h2d_pre.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
         // 16550 to OT mapping
-        uart_tl_o.a_data = '0;
-        uart_tl_o.a_data[0] = txrx_en_d; // TX = new txrx_en
-        uart_tl_o.a_data[1] = txrx_en_d; // RX = new txrx_en
-        uart_tl_o.a_data[4] = loop_q; // SLPBK = loop
-        uart_tl_o.a_data[6] = pen_q; // PARITY_EN = PEN
-        uart_tl_o.a_data[7] = ~eps_q; // PARITY_ODD = !EPS
-        uart_tl_o.a_data[31:16] = 16'd20972; // NCO default value
+        uart_tl_h2d_pre.a_data        = '0;
+        uart_tl_h2d_pre.a_data[0]     = txrx_en_d; // TX = new txrx_en
+        uart_tl_h2d_pre.a_data[1]     = txrx_en_d; // RX = new txrx_en
+        uart_tl_h2d_pre.a_data[4]     = loop_q;    // SLPBK = loop
+        uart_tl_h2d_pre.a_data[6]     = pen_q;     // PARITY_EN = PEN
+        uart_tl_h2d_pre.a_data[7]     = ~eps_q;    // PARITY_ODD = !EPS
+        uart_tl_h2d_pre.a_data[31:16] = 16'd20972; // NCO default value
 
         // DLL and DLM write
         if (req_step_q == 0) begin
@@ -922,27 +929,27 @@ module uart16550_translate(
       end
       // DL access: send response to host
       DLRespSt: begin
-        host_tl_o.d_valid = 1'b1;
+        host_tl_d2h_pre.d_valid = 1'b1;
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_opcode = tlul_pkg::AccessAckData;
+          host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAckData;
         end else begin
-          host_tl_o.d_opcode = resp_opcode_q;
+          host_tl_d2h_pre.d_opcode = resp_opcode_q;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
           // 16550 mapping
-          host_tl_o.d_data = '0;
+          host_tl_d2h_pre.d_data = '0;
           if (req_step_q == 0) begin
-            host_tl_o.d_data[7:0] = dll_q;
+            host_tl_d2h_pre.d_data[7:0] = dll_q;
           end else begin
-            host_tl_o.d_data[7:0] = dlm_q;
+            host_tl_d2h_pre.d_data[7:0] = dlm_q;
           end
         end else begin
-          host_tl_o.d_data = '1;
+          host_tl_d2h_pre.d_data = '1;
         end
         if (req_opcode_q == tlul_pkg::Get) begin
-          host_tl_o.d_error = 1'b0;
+          host_tl_d2h_pre.d_error = 1'b0;
         end else begin
-          host_tl_o.d_error = resp_error_q;
+          host_tl_d2h_pre.d_error = resp_error_q;
         end
 
         if (host_tl_i.d_ready) begin
@@ -951,10 +958,10 @@ module uart16550_translate(
       end
       // Send error response to host
       ErrorRespSt: begin
-        host_tl_o.d_valid = 1'b1;
-        host_tl_o.d_opcode = tlul_pkg::AccessAck;
-        host_tl_o.d_data = '1;
-        host_tl_o.d_error = 1'b1;
+        host_tl_d2h_pre.d_valid  = 1'b1;
+        host_tl_d2h_pre.d_opcode = tlul_pkg::AccessAck;
+        host_tl_d2h_pre.d_data   = '1;
+        host_tl_d2h_pre.d_error  = 1'b1;
 
         if (host_tl_i.d_ready) begin
           state_d = IdleSt;
@@ -964,21 +971,23 @@ module uart16550_translate(
         state_d = IdleSt;
       end
     endcase
-
-    // Calculate host TL-UL integrity
-    host_tl_o.d_user = '{
-      rsp_intg: tlul_pkg::get_rsp_intg(.tl(host_tl_o)),
-      data_intg: tlul_pkg::get_data_intg(.data(host_tl_o.d_data))
-    };
-
-    // Claculate UART TL-UL integrity
-    uart_tl_o.a_user = '{
-      rsvd: '0,
-      instr_type: prim_mubi_pkg::MuBi4False,
-      cmd_intg: tlul_pkg::get_cmd_intg(.tl(uart_tl_o)),
-      data_intg: tlul_pkg::get_data_intg(.data(uart_tl_o.a_data))
-    };
   end
+
+  ////////////////////////////////
+  // TL-UL integrity generation //
+  ////////////////////////////////
+
+  // Host D2H integrity generation
+  tlul_rsp_intg_gen u_host_d2h_intg_gen (
+    .tl_i (host_tl_d2h_pre),
+    .tl_o (host_tl_o)
+  );
+
+  // UART H2D integrity generation
+  tlul_cmd_intg_gen u_uart_h2d_intg_gen (
+    .tl_i (uart_tl_h2d_pre),
+    .tl_o (uart_tl_o)
+  );
 
   //////////
   // Regs //

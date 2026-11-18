@@ -10,6 +10,7 @@ filesets:
       - lowrisc:virtual_constants:top_pkg
       - lowrisc:virtual_constants:top_racl_pkg
       - lowrisc:prim:sparse_fsm
+      - lowrisc:tlul:trans_intg
       - lowrisc:ip:uart
     files:
       - rtl/uart16550_translate.sv
