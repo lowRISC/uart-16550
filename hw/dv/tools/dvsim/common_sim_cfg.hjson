@@ -7,8 +7,9 @@
 //
 // Adapted from OpenTitan hw/dv/tools/dvsim/common_sim_cfg.hjson and
 // hw/data/common_project_cfg.hjson (at the lowrisc_ip lock revision). The differences are that
-// dv_root points at the vendored OpenTitan DV code, the project settings are inline, and the
-// nightly regression does not enable coverage (coverage is later work).
+// dv_root points at the vendored OpenTitan DV code, the project settings are inline, there is
+// no software build support, and the nightly regression does not enable coverage (coverage is
+// later work).
 {
   flow: sim
 
@@ -24,8 +25,12 @@
 
   import_cfgs:      ["{dv_root}/tools/dvsim/common_modes.hjson",
                      "{dv_root}/tools/dvsim/fusesoc.hjson",
-                     "{dv_root}/tools/dvsim/bazel.hjson",
                      "{dv_root}/tools/dvsim/{tool}.hjson"]
+
+  // No test uses software images. DVSim still requires these keys (OpenTitan sets them in
+  // bazel.hjson, which is not vendored).
+  sw_build_cmd:  ""
+  sw_build_opts: []
 
   sv_flist_gen_flags: ["--mapping=lowrisc:prim_generic:all:0.1"]
 
