@@ -1,0 +1,43 @@
+// Copyright lowRISC and contributors (COSMIC project).
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+{
+  name: uart16550
+  dut: uart16550
+  tb: tb
+  tool: xcelium
+
+  fusesoc_core: lowrisc:dv:uart16550_sim:0.1
+  import_cfgs: ["{proj_root}/hw/dv/tools/dvsim/common_sim_cfg.hjson"]
+
+  testplan: "{proj_root}/hw/ip/uart16550/data/uart16550_testplan.hjson"
+
+  // TL-UL protocol assertions are bound to the DUT from this top.
+  sim_tops: ["uart16550_bind"]
+
+  // The UART agent glitches each RX bit start, so seeds matter (doc/dv/README.md, Running).
+  reseed: 10
+
+  // Added to the common "TEST PASSED CHECKS" pattern: all pass patterns must be seen, so a run
+  // only passes if the test also reached and ran its end checks.
+  run_pass_patterns: ["^UART16550_SMOKE_END_CHECKS_DONE$"]
+
+  tests: [
+    {
+      name: uart16550_smoke
+      uvm_test: uart16550_smoke_test
+    }
+  ]
+
+  regressions: [
+    {
+      name: smoke
+      tests: ["uart16550_smoke"]
+      reseed: 1
+    }
+    {
+      name: nightly
+      tests: ["uart16550_smoke"]
+    }
+  ]
+}

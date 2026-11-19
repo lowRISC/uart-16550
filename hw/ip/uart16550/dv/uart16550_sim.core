@@ -1,0 +1,39 @@
+CAPI=2:
+# Copyright lowRISC and contributors (COSMIC project).
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:dv:uart16550_sim:0.1"
+description: "UART 16550 UVM smoke bench (DVSim sim target)"
+filesets:
+  files_rtl:
+    depend:
+      - lowrisc:ip:uart16550
+
+  files_dv:
+    depend:
+      - lowrisc:dv:dv_utils
+      - lowrisc:dv:common_ifs
+      - lowrisc:dv:tl_agent
+      - lowrisc:dv:uart_agent
+      - lowrisc:dv:alert_agent
+      - lowrisc:tlul:common
+    files:
+      - env/uart16550_env_pkg.sv
+      - env/uart16550_env_cfg.sv: {is_include_file: true}
+      - env/uart16550_env.sv: {is_include_file: true}
+      - tests/uart16550_test_pkg.sv
+      - tests/uart16550_smoke_test.sv: {is_include_file: true}
+      - tb/uart16550_bind.sv
+      - tb/tb.sv
+    file_type: systemVerilogSource
+
+targets:
+  sim: &sim_target
+    toplevel: tb
+    filesets:
+      - files_rtl
+      - files_dv
+    default_tool: vcs
+
+  default:
+    <<: *sim_target

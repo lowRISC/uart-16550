@@ -5,7 +5,8 @@ single selected configuration.
 It is written before the bench so that the checks are agreed first.
 The testpoints are in [`data/uart16550_testplan.hjson`](../../data/uart16550_testplan.hjson).
 
-**Status:** test contract only. The UVM bench and the `uart16550_smoke` test do not exist yet.
+**Status:** the bench and the `uart16550_smoke` test are implemented in [`dv/`](../../dv) but
+have not passed a simulation yet.
 
 ## Sources
 
@@ -123,11 +124,13 @@ Run each once with a test-only fault switch (off by default) or in a throw-away 
 confirm the failure reaches the DVSim and process status, then remove the fault and rerun the
 clean smoke.
 
+Each control except the tool failure is a test-only `+smoke_fault=<name>` option.
+
 | Control | Fault | Expected result |
 |-|-|-|
 | Wrong TX byte | Write 0x54 instead of 0x55 to THR, expectation unchanged | TX mismatch, test fails |
 | Wrong RX byte | Drive 0xAB instead of 0xAA, expectation unchanged | RBR mismatch, test fails |
-| Missing TX transfer | Skip one THR write, expected count stays 4 | TX timeout or non-empty queue at end, test fails |
+| Missing TX transfer | Skip one THR write, expected count stays 4 | TX mismatch (frames compare in order), then TX timeout, test fails |
 | Missing RX transfer | Skip one RX frame, expected count stays 4 | LSR.DR wait times out, test fails |
 | Extra TX byte | Write one extra THR byte that is not expected | Unexpected-data error, test fails |
 | Tool failure | Remove a source file from the build | Build failure, reported as a tool failure |
@@ -170,9 +173,9 @@ one alert, `fatal_fault`, raised on a fatal TL-UL bus integrity fault
 (`hw/vendor/lowrisc_ip/ip/uart/doc/interfaces.md`); the smoke sends only well-formed accesses, and
 the wrapper README says request integrity errors are ignored, so no alert is expected.
 
-## Planned bench
+## Bench
 
-Reuse OpenTitan DV components where they save work, without the full CIP layer for V1:
+The bench reuses OpenTitan DV components without the full CIP layer:
 
 - `dv_lib` base classes, `tl_agent` (host), `uart_agent` (supports 1 Mbaud) and
   `alert_agent` (`lowrisc:dv:alert_agent`, `hw/dv/sv/alert_agent` at OpenTitan `012fb0fe`) as the
@@ -195,12 +198,20 @@ Reuse OpenTitan DV components where they save work, without the full CIP layer f
   - With its default response sequence the agent also starts a ping sequence. V1 sets the ping
     delay far beyond the whole-test limit, so no ping is sent.
 - Directed alert fault injection and ping tests are later work (V2 `alerts` testpoint).
-- These libraries are not vendored yet. They need `hw/dv/sv` (including `bus_params_pkg` and
-  `alert_agent` with its dependencies) and
-  the DVSim configuration from `hw/dv/tools` at the same OpenTitan revision, with no RTL change.
-  This must be coordinated with the vendor directory move in PR #14.
-- `dv_base_env_cfg` always creates a register model of type `RAL_T`. Using it with no generated
-  register model has to be proven first in the next slice.
+- The environment is a plain `uvm_env`/`uvm_test`; `dv_base_env` and its register model are not
+  used. `tlul_assert` is bound to the DUT's TL-UL port (`tb/uart16550_bind.sv`).
+- The OpenTitan DV libraries and DVSim configuration are vendored from OpenTitan `012fb0fe` (the
+  existing lock) into `hw/vendor/lowrisc_ip/dv`, with no RTL change. If PR #14 moves the vendor
+  directory, `dv_root` in `hw/dv/tools/dvsim/common_sim_cfg.hjson` moves with it.
+
+| File | Content |
+|-|-|
+| `dv/uart16550_sim.core` | FuseSoC core `lowrisc:dv:uart16550_sim` |
+| `dv/uart16550_sim_cfg.hjson` | DVSim configuration, tests and regressions |
+| `dv/tb/tb.sv` | DUT, interfaces, tie-offs, interrupt assertions |
+| `dv/env/` | Agents, TX frame checker, alert channel checker |
+| `dv/tests/uart16550_smoke_test.sv` | Smoke sequence, register checks, counts, waits, negative controls |
+| `hw/dv/tools/dvsim/common_sim_cfg.hjson` (from the repository root) | Project DVSim settings |
 
 ## Running
 
@@ -213,7 +224,28 @@ fusesoc --cores-root=. run --target=sim lowrisc:dv:uart16550_tb   # pre_dv, prin
 
 Both need Verilator 5.054 or newer (from the project dev shell).
 
-The smoke test will be run with DVSim and Xcelium. The command will be added with the bench.
+The smoke test runs with DVSim and Xcelium 24.03, with `xrun`, `dvsim` and `fusesoc` on `PATH`:
+
+```sh
+dvsim hw/ip/uart16550/dv/uart16550_sim_cfg.hjson -t xcelium -i uart16550_smoke --fixed-seed 1 \
+  --scratch-root <dir outside the repo>
+dvsim hw/ip/uart16550/dv/uart16550_sim_cfg.hjson -t xcelium -i smoke     # 1 random seed
+dvsim hw/ip/uart16550/dv/uart16550_sim_cfg.hjson -t xcelium -i nightly   # 10 random seeds
+```
+
+A run passes only if the log contains both `TEST PASSED CHECKS` (no UVM warning, error or fatal)
+and `UART16550_SMOKE_END_CHECKS_DONE` (the test reached its end checks), and no failure pattern.
+The UART agent glitches each driven RX bit for up to 10% of the bit time, so seeds change timing.
+
+Negative controls (see [Negative controls](#negative-controls)) add a run option:
+
+```sh
+dvsim ... -i uart16550_smoke --fixed-seed 1 --run-opts +smoke_fault=wrong_tx
+```
+
+with `wrong_tx`, `wrong_rx`, `missing_tx`, `missing_rx` or `extra_tx`.
+
+For debug, add `--waves shm` and `--verbosity m` (step-by-step register values).
 
 ## Later work
 
