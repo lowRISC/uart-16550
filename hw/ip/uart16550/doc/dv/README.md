@@ -2,16 +2,39 @@
 
 This page defines the first (V1) DV target for the UART 16550 wrapper: one smoke test with a
 single selected configuration.
-It is written before the bench so that the checks are agreed first.
+It was written before the bench so that the checks were agreed first.
 The testpoints are in [`data/uart16550_testplan.hjson`](../../data/uart16550_testplan.hjson).
 
-**Status:** the bench and the `uart16550_smoke` test are implemented in [`dv/`](../../dv).
-At commit `33016fe` the smoke passed with seed 1, and the five stimulus negative controls failed
-for their intended reasons with DVSim exit status 1. At `15b14b1`, before every LSR poll read was
-checked, the `rx_frame_err` control passed wrongly (DVSim exit 0): a poll read returned 0xE8 (FE
-and LSR[7] set, DR = 0) and the following reads were clean. The per-read check was added after
-that run and has not been simulated yet. Qualification of the final revision (ten seeds, negative
-controls, existing flows, review) is still pending; this is not a V1 sign-off.
+**Status:** initial bench. The bench and the `uart16550_smoke` test are in [`dv/`](../../dv).
+The results below cover only this V1 smoke at commit `b424bde`. They are not a V1 sign-off: the V2
+and V3 testpoints are not implemented, coverage is not collected, and the bench has not run in a
+scheduled Mocha nightly.
+
+## Results at `b424bde`
+
+Xcelium 24.03 through DVSim. Each command below follows
+`dvsim hw/ip/uart16550/dv/uart16550_sim_cfg.hjson -t xcelium`; negative controls add
+`--run-opts +smoke_fault=<name>`. Expected values come from the contract below, not from the RTL.
+
+| Run | Options | DVSim exit | Result |
+|-|-|-|-|
+| Clean smoke | `-i uart16550_smoke --fixed-seed 1` | 0 | Pass |
+| Ten seeds | `-i nightly --seeds 1 2 3 4 5 6 7 8 9 10 --reseed 10` | 0 | 10 of 10 pass |
+| `wrong_tx` | `-i uart16550_smoke --fixed-seed 1` | 1 | TX frame 1 is 0x54, expected 0x55 |
+| `wrong_rx` | as above | 1 | RBR byte 0 is 0xAB, expected 0xAA |
+| `missing_tx` | as above | 1 | Later frames mismatch in order, then only 3 of 4 frames within 100 us |
+| `missing_rx` | as above | 1 | DR not set within 20 us. The resulting abort also leaves a TL-UL request outstanding, so `tlul_assert` reports it at the end; that is a consequence, not the primary failure. |
+| `extra_tx` | as above | 1 | Unexpected fifth frame 0x3C, then 5 frames counted instead of 4 |
+| `rx_frame_err` | as above | 1 | One error only: a poll read of 0xE8 has FE and LSR[7] set. RBR byte 0 (0xAA) and the end checks still pass. |
+| Clean smoke after the controls | `-i smoke --fixed-seed 1` | 0 | Pass |
+
+At the same commit, the existing lint and `pre_dv` flows pass, `reuse lint` passes, and the commit
+metadata check passes for the branch. The tool-failure control in
+[Negative controls](#negative-controls) was not run.
+
+`rx_frame_err` is a check on the bench itself. An LSR read clears FE and LSR[7]
+(datasheet Section 8.6.3), so an error seen only by an early poll read must fail the test. At
+`15b14b1`, before every poll read was checked, the same control passed wrongly (DVSim exit 0).
 
 ## Sources
 
