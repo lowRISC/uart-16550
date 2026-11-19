@@ -86,8 +86,10 @@
             - LSR reads 0x60 (no received data, no errors, transmitter empty);
             - intr_tx_watermark_o, intr_tx_done_o and intr_rx_timeout_o stayed low for the whole
               test (the wrapper README says these are never enabled);
-            - the passive alert protocol checks (alert receiver agent on alert_tx_o/alert_rx_i)
-              reported no error for the whole test, and no alert was sent;
+            - the alert channel finished its documented initialization handshake within a bounded
+              time after reset (invalid differential pairs are expected only during that
+              handshake), and afterwards all three alert pairs stayed correctly encoded and no
+              alert was sent (OpenTitan alert handler theory of operation, see doc/dv/README.md);
             - no UVM_ERROR or UVM_FATAL was reported; any error must make the run fail.
             '''
       stage: V1

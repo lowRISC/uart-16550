@@ -86,8 +86,9 @@ Each check reports `UVM_ERROR` (or `UVM_FATAL` for a timeout) when it fails:
    A missing transfer fails this check even if no comparison ever ran.
 6. `intr_tx_watermark_o`, `intr_tx_done_o` or `intr_rx_timeout_o` goes high
    (the wrapper README says they are never enabled).
-7. The alert protocol checker reports an error on `alert_tx_o`/`alert_rx_i`, or an alert is sent
-   (see [Auxiliary outputs and tie-offs](#auxiliary-outputs-and-tie-offs)).
+7. The alert channel does not finish its initialization handshake in time, an alert pair is
+   wrongly encoded after initialization, or an alert is sent
+   (see [Alert channel](#alert-channel)).
 8. Any wait passes its limit (below).
 
 ### Bounded waits
@@ -100,6 +101,7 @@ These are starting values. Change them only with a recorded reason.
 | All 4 TX frames after the last THR write | 100 us (about 2.5x the 40 us needed) |
 | LSR.THRE/TEMT after the last TX frame | 20 us |
 | LSR.DR for each RX byte after its stop bit | 20 us |
+| Alert channel initialization after `rst_ni` is released | 1000 clock cycles (bench choice) |
 | Whole test | 1 ms of simulated time (about 0.15 ms expected) |
 
 ### Pass criteria
@@ -134,12 +136,39 @@ clean smoke.
 
 | Port | Smoke bench | Check in V1 |
 |-|-|-|
-| `alert_rx_i` / `alert_tx_o` | Driven by an OpenTitan `alert_agent` (`lowrisc:dv:alert_agent`) in device (receiver) mode, so `alert_rx_i` always carries legal differential values, the post-reset init handshake is completed, and any alert gets a legal ack. No pings are sent in V1. | Alert protocol checked passively for the whole test (see [Planned bench](#planned-bench)); no alert sent |
+| `alert_rx_i` / `alert_tx_o` | Driven by an OpenTitan `alert_agent` (`lowrisc:dv:alert_agent`) in device (receiver) mode. It performs the documented post-reset initialization handshake, then keeps `alert_rx_i` correctly encoded and acks any alert. No pings are sent in V1. | See [Alert channel](#alert-channel) |
 | `racl_policies_i` / `racl_error_o` | `RACL_POLICY_VEC_DEFAULT` | Observed only (RACL is not implemented) |
 | `lsio_trigger_o` | Observed | None |
 | `cio_tx_en_o` | Observed | None (not a 16550 signal) |
 | `intr_tx_watermark_o`, `intr_tx_done_o`, `intr_rx_timeout_o` | Observed | Stay low |
 | Other `intr_*_o` | Observed | None in V1 (see the `interrupts` testpoint) |
+
+## Alert channel
+
+Expected alert behaviour comes from the OpenTitan alert handler specification at `012fb0fe`,
+`hw/top_earlgrey/ip_autogen/alert_handler/doc/theory_of_operation.md` (the `alert_agent` README
+links to it): "Differential Alert Signaling" and "Monitoring of Signal Integrity Issues" for
+normal operation, and the low-power group initialization text (in-band reset) for initialization.
+
+The pairs are not always correctly encoded.
+During initialization the receiver deliberately places a signal-integrity error on
+`ack_p`/`ack_n` (and `ping_p`/`ping_n`); the sender acknowledges with a signal-integrity error on
+`alert_p`/`alert_n` (both equal), and returns to idle when the receiver's error is removed.
+The smoke therefore checks in two phases:
+
+1. **Initialization**, after `rst_ni` is released: within 1000 clock cycles, `alert_p == alert_n`
+   is seen (the sender's acknowledge), followed by the idle state with all three pairs correctly
+   encoded and `alert_p` = 0. Invalid pairs are expected in this phase and are not errors.
+   Not finishing in time is an error.
+2. **Normal operation**, from initialization done to the end of the test, sampled every clock:
+   `alert_p != alert_n`, `ack_p != ack_n` and `ping_p != ping_n` (correct differential encoding),
+   and `alert_p` = 0 (no native alert, since the smoke expects none). Any item that the agent's
+   monitor publishes (alert or integrity failure) is also an error.
+
+The datasheet and wrapper documents do not describe the alert. The wrapped OpenTitan UART has
+one alert, `fatal_fault`, raised on a fatal TL-UL bus integrity fault
+(`hw/vendor/lowrisc_ip/ip/uart/doc/interfaces.md`); the smoke sends only well-formed accesses, and
+the wrapper README says request integrity errors are ignored, so no alert is expected.
 
 ## Planned bench
 
