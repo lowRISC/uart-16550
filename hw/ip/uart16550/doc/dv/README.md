@@ -1,7 +1,7 @@
 # UART 16550 DV
 
 This page defines the first (V1) DV target for the UART 16550 wrapper: one smoke test with a
-fixed configuration.
+single selected configuration.
 It is written before the bench so that the checks are agreed first.
 The testpoints are in [`data/uart16550_testplan.hjson`](../../data/uart16550_testplan.hjson).
 
@@ -35,7 +35,7 @@ point. Neither changes the smoke expectations below, but re-check them if either
 | Clock | 50 MHz (20 ns) | `registers.md`, DLL row |
 | Reset | `rst_ni` low for at least 10 clock cycles | Bench choice |
 | Baud rate | DUT: 50 MHz x 20972 / 2^20 = 1,000,023 baud. Bench: 1,000,000 baud (1000 ns bit time). The 0.002% difference is far inside the receiver's +/-5.5% tolerance. | `registers.md`, DLL row; OT programmer's guide and theory of operation |
-| Frame | 8 data bits, no parity, 1 stop bit; start bit 0, data LSB first, stop bit 1 | Datasheet Table 1 note 1, Section 8.6.2 |
+| Frame | 8 data bits, no parity, 1 stop bit; start bit 0, data LSB first, stop bit 1. The wrapper also supports parity; the smoke uses only this one selected mode. | Datasheet Table 1 note 1, Section 8.6.2; `registers.md` LCR row |
 | Bus | TL-UL `PutFullData`/`Get`, `a_size` 2, `a_mask` 0xF, word-aligned, upper 3 data bytes written as 0 | `registers.md` |
 | Interrupts | Not used (IER = 0); status is polled through LSR | Bench choice |
 | Serial input | Driven high (idle) from reset | Datasheet Section 8.6.3, BI |
@@ -69,7 +69,8 @@ Byte choices:
 
 - TX 0x01 and 0x80 catch bit-order and off-by-one sampling errors; 0x55 alternates; 0x00 has the
   longest low period, so a missing stop bit is caught.
-- RX avoids 0x00, because the wrapper returns 0 when RBR is read with an empty FIFO.
+- RX avoids 0x00, because the wrapper returns 0 when RBR is read with an empty FIFO
+  (`registers.md`, RBR row).
 - RX and TX bytes differ, so a TX/RX mix-up does not match by accident.
 - 4 bytes fit in both FIFOs (32 TX, 64 RX), so no flow control is needed.
 
@@ -84,8 +85,10 @@ Each check reports `UVM_ERROR` (or `UVM_FATAL` for a timeout) when it fails:
 5. Expected counts are exactly 4 TX and 4 RX bytes. At the end both expected queues must be empty.
    A missing transfer fails this check even if no comparison ever ran.
 6. `intr_tx_watermark_o`, `intr_tx_done_o` or `intr_rx_timeout_o` goes high
-   (the wrapper README says they are never enabled), or an alert is sent.
-7. Any wait passes its limit (below).
+   (the wrapper README says they are never enabled).
+7. The alert protocol checker reports an error on `alert_tx_o`/`alert_rx_i`, or an alert is sent
+   (see [Auxiliary outputs and tie-offs](#auxiliary-outputs-and-tie-offs)).
+8. Any wait passes its limit (below).
 
 ### Bounded waits
 
@@ -93,7 +96,7 @@ These are starting values. Change them only with a recorded reason.
 
 | Wait | Limit |
 |-|-|
-| One TL-UL access (request accepted to response) | 1000 clock cycles |
+| One TL-UL access (from the request first being presented, `a_valid` = 1, to the response; this includes waiting for `a_ready`) | 1000 clock cycles |
 | All 4 TX frames after the last THR write | 100 us (about 2.5x the 40 us needed) |
 | LSR.THRE/TEMT after the last TX frame | 20 us |
 | LSR.DR for each RX byte after its stop bit | 20 us |
@@ -131,7 +134,7 @@ clean smoke.
 
 | Port | Smoke bench | Check in V1 |
 |-|-|-|
-| `alert_rx_i` / `alert_tx_o` | Alert receiver side driven idle or by an alert agent | No alert sent |
+| `alert_rx_i` / `alert_tx_o` | Driven by an OpenTitan `alert_esc_agent` acting as the alert receiver, so `alert_rx_i` always carries legal differential values and any alert gets a legal ack. No pings are sent in V1. | Alert protocol checked passively for the whole test by the agent's monitor and interface checks; no alert sent |
 | `racl_policies_i` / `racl_error_o` | `RACL_POLICY_VEC_DEFAULT` | Observed only (RACL is not implemented) |
 | `lsio_trigger_o` | Observed | None |
 | `cio_tx_en_o` | Observed | None (not a 16550 signal) |
@@ -142,12 +145,18 @@ clean smoke.
 
 Reuse OpenTitan DV components where they save work, without the full CIP layer for V1:
 
-- `dv_lib` base classes, `tl_agent` (host) and `uart_agent` (supports 1 Mbaud).
+- `dv_lib` base classes, `tl_agent` (host), `uart_agent` (supports 1 Mbaud) and
+  `alert_esc_agent` (alert receiver and passive protocol checks).
   Register accesses use small helper tasks on raw offsets. A complete RAL model is not required.
 - Not `cip_lib` for V1. At OpenTitan `012fb0fe`, `cip_base_env_cfg` stops with a fatal error when
   the register block has no `alert_test` register, and the 16550 map has none.
   Its generic register checks would also run before the custom data checks.
-- These libraries are not vendored yet. They need `hw/dv/sv` (including `bus_params_pkg`) and
+  Alert protocol checking is kept by instantiating `alert_esc_agent` directly.
+  If that agent does not check the differential encoding and handshake on its own, the first
+  bench slice adds a small assertion checker on the alert interface.
+- Directed alert fault injection and ping tests are later work (V2 `alerts` testpoint).
+- These libraries are not vendored yet. They need `hw/dv/sv` (including `bus_params_pkg` and
+  `alert_esc_agent` with its dependencies) and
   the DVSim configuration from `hw/dv/tools` at the same OpenTitan revision, with no RTL change.
   This must be coordinated with the vendor directory move in PR #14.
 - `dv_base_env_cfg` always creates a register model of type `RAL_T`. Using it with no generated
@@ -169,5 +178,5 @@ The smoke test will be run with DVSim and Xcelium. The command will be added wit
 ## Later work
 
 V2 and V3 testpoints in the testplan list later work: full CSR checks, TL-UL errors, interrupts,
-FIFO limits and overrun, receive errors, other line settings and loopback, alerts, stress, reset
-during transfers and coverage. None of these is needed for the V1 smoke.
+FIFO limits and overrun, receive errors, other line settings and loopback, directed alert fault
+injection, stress, reset during transfers and coverage. None of these is needed for the V1 smoke.

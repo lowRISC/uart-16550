@@ -37,8 +37,9 @@
     {
       name: smoke_config
       desc: '''
-            Configure the single supported mode: 50 MHz clock, about 1 Mbaud, 8 data bits,
-            no parity, 1 stop bit (8N1), polled operation with IER = 0.
+            Configure the single selected smoke mode: 50 MHz clock, about 1 Mbaud, 8 data bits,
+            no parity, 1 stop bit (8N1), polled operation with IER = 0. The wrapper also supports
+            parity; other line settings are in the V2 line_config testpoint.
 
             - Write LCR = 0x83 (DLAB = 1, 8N1) and read back 0x83.
             - Write DLL = 0x03 and DLM = 0x00 and read both back. The wrapper keeps these values
@@ -85,7 +86,8 @@
             - LSR reads 0x60 (no received data, no errors, transmitter empty);
             - intr_tx_watermark_o, intr_tx_done_o and intr_rx_timeout_o stayed low for the whole
               test (the wrapper README says these are never enabled);
-            - no alert was sent;
+            - the passive alert protocol checks (alert receiver agent on alert_tx_o/alert_rx_i)
+              reported no error for the whole test, and no alert was sent;
             - no UVM_ERROR or UVM_FATAL was reported; any error must make the run fail.
             '''
       stage: V1
@@ -136,8 +138,15 @@
     {
       name: rx_errors
       desc: '''
-            Parity error, framing error and break detection as described in doc/registers.md
-            (errored characters are not pushed into the RCVR FIFO), and LSR[7].
+            Parity error, framing error and break detection, with the reporting timing in the
+            doc/registers.md LSR row, and LSR[7]. Characters with a framing or parity error are
+            not pushed into the RCVR FIFO (README.md, Functional differences).
+
+            Clear-on-read (datasheet Section 8.6.3): OE, PE, FE and BI are cleared when LSR is
+            read, and LSR[7] is cleared by an LSR read when no further error remains (in the
+            wrapper LSR[7] is the OR of PE, FE and BI, doc/registers.md). After each error, read
+            LSR and check the error bit and LSR[7] are set, then read LSR again and check they are
+            clear when no new error has occurred.
             '''
       stage: V2
       tests: ["uart16550_rx_errors"]
@@ -154,8 +163,10 @@
     {
       name: alerts
       desc: '''
-            Alert protocol for the fatal_fault alert. The 16550 map has no ALERT_TEST register, so a
-            generic register-based alert test needs adapting rather than reusing as is.
+            Directed alert fault injection and ping handshakes for the fatal_fault alert. Passive
+            alert protocol checking is already part of V1 (smoke_end_checks). The 16550 map has
+            no ALERT_TEST register, so a generic register-based alert test needs adapting rather
+            than reusing as is.
             '''
       stage: V2
       tests: ["uart16550_alerts"]
