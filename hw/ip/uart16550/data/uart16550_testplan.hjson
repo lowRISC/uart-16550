@@ -1,0 +1,177 @@
+// Copyright lowRISC and contributors (COSMIC project).
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+//
+// UART 16550 wrapper testplan.
+//
+// V1 is one smoke test with a fixed configuration. Its exact inputs, expected
+// values and pass/fail rules are in doc/dv/README.md. V2 and V3 testpoints list
+// later work only; they are not implemented.
+//
+// Sources: TI PC16550D datasheet SNLS378C (Rev C, May 2015), modified by the
+// documented exceptions in README.md and doc/registers.md of this IP.
+{
+  name: "uart16550"
+
+  testpoints: [
+    ////////
+    // V1 //
+    ////////
+    {
+      name: smoke_reset_readback
+      desc: '''
+            After reset, read each register that has a documented reset value and check the full
+            32-bit read data and that no access returns an error.
+
+            Expected (datasheet Table 3, adjusted by the wrapper exceptions in doc/registers.md):
+            IER 0x00, IIR 0x01, LCR 0x13, MCR 0x00, LSR 0x60, MSR 0x00.
+            LCR is 0x13 rather than 0x00 because the wrapper reads WLS as 0b11 and resets EPS to 1.
+            MSR is 0x00 because the modem inputs read as 0 when loopback is disabled.
+
+            Also check that the serial output is high (idle) after reset (datasheet Table 3).
+            SCR, DLL and DLM have no documented reset value, so only write/readback is checked.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+    {
+      name: smoke_config
+      desc: '''
+            Configure the single supported mode: 50 MHz clock, about 1 Mbaud, 8 data bits,
+            no parity, 1 stop bit (8N1), polled operation with IER = 0.
+
+            - Write LCR = 0x83 (DLAB = 1, 8N1) and read back 0x83.
+            - Write DLL = 0x03 and DLM = 0x00 and read both back. The wrapper keeps these values
+              but always programs 1 Mbaud at 50 MHz; the first DLL/DLM write enables TX and RX.
+            - Write LCR = 0x03 (DLAB = 0) and read back 0x03.
+            - Write FCR = 0x07 (FIFO enable, clear both FIFOs, RCVR trigger level 1 byte).
+            - Write SCR = 0xA5 and read back 0xA5.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+    {
+      name: smoke_tx
+      desc: '''
+            Write 4 bytes to THR: 0x55, 0x01, 0x80, 0x00. Decode the serial output as 8N1 frames
+            (start bit 0, data LSB first, stop bit 1) and compare them in order.
+
+            - Exactly 4 frames must be seen. A wrong byte, a bad start or stop bit, a frame seen
+              with nothing expected, or a missing frame at the deadline is an error.
+            - After the last frame, LSR must reach 0x60 (THRE and TEMT set) within a bounded wait.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+    {
+      name: smoke_rx
+      desc: '''
+            Drive 4 frames into the serial input at 1 Mbaud, 8N1: 0xAA, 0x02, 0x40, 0x7E.
+            For each byte, poll LSR until DR is set (bounded), check LSR error bits are clear,
+            read RBR and compare in order.
+
+            0x00 is not used because the wrapper returns 0 when RBR is read with an empty FIFO.
+            The RX bytes differ from the TX bytes so a TX/RX mix-up is detected.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+    {
+      name: smoke_end_checks
+      desc: '''
+            At the end of the test:
+            - the expected TX and RX queues are empty and both transfer counts equal 4;
+            - no further TX frame appears during a quiet window of 2 character times;
+            - LSR reads 0x60 (no received data, no errors, transmitter empty);
+            - intr_tx_watermark_o, intr_tx_done_o and intr_rx_timeout_o stayed low for the whole
+              test (the wrapper README says these are never enabled);
+            - no alert was sent;
+            - no UVM_ERROR or UVM_FATAL was reported; any error must make the run fail.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+
+    ////////
+    // V2 //
+    ////////
+    {
+      name: csr_reset_and_rw
+      desc: '''
+            All registers: reset values, write/readback, read-only and write-only behaviour, upper
+            byte writes ignored and reads 0, DLAB banking of offsets 0x0 and 0x4, IIR/FCR and
+            RBR/THR aliases, address wrap every 32 bytes.
+            '''
+      stage: V2
+      tests: ["uart16550_csr_rw"]
+    }
+    {
+      name: tl_errors
+      desc: '''
+            Non-zero a_address[1:0] returns an error. Documented gaps (integrity not checked,
+            PutPartialData and size != 2) are recorded but not used as checks until implemented.
+            '''
+      stage: V2
+      tests: ["uart16550_tl_errors"]
+    }
+    {
+      name: interrupts
+      desc: '''
+            IER enables, IIR identification and priority, and the interrupt outputs, including the
+            documented IIR exceptions. Expected behaviour must be pinned to the RTL revision under
+            test because PR #13 / issue #9 change IIR timeout behaviour.
+            '''
+      stage: V2
+      tests: ["uart16550_intr"]
+    }
+    {
+      name: fifo_levels
+      desc: '''
+            TX FIFO 32 bytes and RX FIFO 64 bytes: full, writes to a full XMIT FIFO dropped,
+            RCVR overrun (LSR.OE), FCR FIFO reset, trigger levels.
+            '''
+      stage: V2
+      tests: ["uart16550_fifo"]
+    }
+    {
+      name: rx_errors
+      desc: '''
+            Parity error, framing error and break detection as described in doc/registers.md
+            (errored characters are not pushed into the RCVR FIFO), and LSR[7].
+            '''
+      stage: V2
+      tests: ["uart16550_rx_errors"]
+    }
+    {
+      name: line_config
+      desc: '''
+            Parity enable and even/odd select, ignored WLS/STB/stick parity writes, TX break
+            (LCR[6]), and loopback (MCR.LOOP) with the related MSR bits.
+            '''
+      stage: V2
+      tests: ["uart16550_line_config"]
+    }
+    {
+      name: alerts
+      desc: '''
+            Alert protocol for the fatal_fault alert. The 16550 map has no ALERT_TEST register, so a
+            generic register-based alert test needs adapting rather than reusing as is.
+            '''
+      stage: V2
+      tests: ["uart16550_alerts"]
+    }
+
+    ////////
+    // V3 //
+    ////////
+    {
+      name: stress_and_reset
+      desc: '''
+            Random mixes of the V2 tests, reset during active transfers, baud tolerance of the
+            receiver, and coverage closure.
+            '''
+      stage: V3
+      tests: ["uart16550_stress_all"]
+    }
+  ]
+}
