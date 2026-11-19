@@ -12,6 +12,9 @@
 //   missing_tx skip the THR write of the second byte
 //   missing_rx skip driving the second RX byte
 //   extra_tx   write one extra, unexpected byte (0x3C) to THR
+// Checker QA control for LSR polling (not V2 receive-error coverage):
+//   rx_frame_err before the first RX byte, drive a frame with a framing error, then poll LSR while
+//                the first valid byte is still arriving
 class uart16550_smoke_test extends uvm_test;
   uart16550_env_cfg cfg;
   uart16550_env     env;
@@ -45,7 +48,8 @@ class uart16550_smoke_test extends uvm_test;
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
     void'($value$plusargs("smoke_fault=%s", fault));
-    if (!(fault inside {"", "wrong_tx", "wrong_rx", "missing_tx", "missing_rx", "extra_tx"})) begin
+    if (!(fault inside {"", "wrong_tx", "wrong_rx", "missing_tx", "missing_rx", "extra_tx",
+                        "rx_frame_err"})) begin
       `uvm_fatal(`gfn, $sformatf("Unknown +smoke_fault=%s", fault))
     end
     if (fault != "") `uvm_info(`gfn, $sformatf("Negative control: %s", fault), UVM_NONE)
@@ -72,6 +76,7 @@ class uart16550_smoke_test extends uvm_test;
 
   virtual task run_smoke();
     bit [31:0] rdata;
+    bit        rx_sent = 1'b1;
 
     // Step 1: reset, with the serial input idle (high) from reset; SOUT idle high (Table 3).
     `uvm_info(`gfn, "Step 1: reset", UVM_LOW)
@@ -131,13 +136,28 @@ class uart16550_smoke_test extends uvm_test;
     for (int i = 0; i < NumRx; i++) begin
       bit [7:0] data = RxBytes[i];
       if (fault == "wrong_rx" && i == 0) data = 8'hAB;
-      if (!(fault == "missing_rx" && i == 1)) send_rx_byte(data);
+      if (fault == "rx_frame_err" && i == 0) begin
+        // The errored frame is not pushed into the RCVR FIFO (README.md), so FE and LSR[7] are set
+        // while DR is 0. Early polls see the error and the read clears it (Section 8.6.3) before
+        // the valid byte sets DR. No error is expected, so the test must fail.
+        send_rx_frame_error(8'h5A);
+        rx_sent = 1'b0;
+        fork
+          begin
+            send_rx_byte(data);
+            rx_sent = 1'b1;
+          end
+        join_none
+      end else if (!(fault == "missing_rx" && i == 1)) begin
+        send_rx_byte(data);
+      end
       poll_lsr(8'h01, RxReadyTimeoutNs, rdata);
       if (rdata[4:1] != 0 || rdata[7] != 0) begin
         `uvm_error(`gfn, $sformatf("RX byte %0d: LSR 0x%02x shows an error bit", i, rdata))
       end
       csr_rd_check(RBR_THR, RxBytes[i], $sformatf("RBR byte %0d", i));
       rx_bytes_checked++;
+      wait (rx_sent);
     end
 
     // Step 12 and end checks: quiet window, final LSR, exact counts, empty queue.
@@ -183,6 +203,21 @@ class uart16550_smoke_test extends uvm_test;
     seq.set_sequencer(env.m_uart_agent.sequencer);  // the constraints use p_sequencer
     `DV_CHECK_RANDOMIZE_WITH_FATAL(seq, data == local::data; parity_err == 0; frame_err == 0;)
     seq.start(env.m_uart_agent.sequencer);
+  endtask
+
+  // rx_frame_err control: one 8N1 frame with a 0 stop bit (framing error), driven directly on
+  // cio_rx_i at the bench bit time, then 2 idle bit times. The agent's RX monitor is paused because
+  // it would report the deliberate stop bit; the RX driver is idle meanwhile.
+  virtual task send_rx_frame_error(bit [7:0] data);
+    bit [9:0] frame = {1'b0, data, 1'b0};  // stop, data, start; sent from bit 0 (LSB first)
+    cfg.m_uart_agent_cfg.en_rx_monitor = 1'b0;
+    for (int b = 0; b < 10; b++) begin
+      cfg.m_uart_agent_cfg.vif.uart_rx = frame[b];
+      #(cfg.m_uart_agent_cfg.vif.uart_clk_period);
+    end
+    cfg.m_uart_agent_cfg.vif.uart_rx = 1'b1;
+    #(2 * cfg.m_uart_agent_cfg.vif.uart_clk_period);
+    cfg.m_uart_agent_cfg.en_rx_monitor = 1'b1;
   endtask
 
   // One TL-UL access: PutFullData or Get, a_size 2, a_mask 0xF, word aligned (contract "Bus").
@@ -242,7 +277,10 @@ class uart16550_smoke_test extends uvm_test;
   virtual task poll_lsr(bit [7:0] mask, int unsigned timeout_ns, output bit [31:0] lsr);
     fork begin : isolation_fork
       fork
-        do csr_access(1'b0, LSR, '0, lsr); while ((lsr[7:0] & mask) != mask);
+        do begin
+          csr_access(1'b0, LSR, '0, lsr);
+          `uvm_info(`gfn, $sformatf("LSR poll read 0x%08x", lsr), UVM_MEDIUM)
+        end while ((lsr[7:0] & mask) != mask);
         begin
           #(timeout_ns * 1ns);
           `uvm_fatal(`gfn, $sformatf("LSR bits 0x%02x not set within %0d ns (last LSR 0x%02x)",
