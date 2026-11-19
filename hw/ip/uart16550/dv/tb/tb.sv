@@ -58,6 +58,10 @@ module tb;
     .intr_rx_parity_err_o (intr_rx_parity_err)
   );
 
+  // The UART agent stores decoded TX bits two-state, where X would read as 0. Check the serial
+  // output is known out of reset before it is decoded.
+  `ASSERT_KNOWN(CioTxKnown_A, cio_tx, clk, !rst_n)
+
   // The wrapper README says these interrupts are never enabled, so they stay low.
   `ASSERT(IntrTxWatermarkLow_A, intr_tx_watermark === 1'b0, clk, !rst_n)
   `ASSERT(IntrTxDoneLow_A, intr_tx_done === 1'b0, clk, !rst_n)

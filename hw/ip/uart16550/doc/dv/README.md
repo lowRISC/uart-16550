@@ -5,8 +5,10 @@ single selected configuration.
 It is written before the bench so that the checks are agreed first.
 The testpoints are in [`data/uart16550_testplan.hjson`](../../data/uart16550_testplan.hjson).
 
-**Status:** the bench and the `uart16550_smoke` test are implemented in [`dv/`](../../dv) but
-have not passed a simulation yet.
+**Status:** the bench and the `uart16550_smoke` test are implemented in [`dv/`](../../dv).
+At commit `33016fe` the smoke passed with seed 1, and the five stimulus negative controls failed
+for their intended reasons with DVSim exit status 1. Qualification of the final revision (ten
+seeds, existing flows, review) is still pending; this is not a V1 sign-off.
 
 ## Sources
 
@@ -83,8 +85,10 @@ Each check reports `UVM_ERROR` (or `UVM_FATAL` for a timeout) when it fails:
 2. A TX frame has the wrong data, a bad start bit or a bad stop bit.
 3. A TX frame is seen when no byte is expected (unexpected data).
 4. An RBR read returns the wrong byte, or LSR shows an error bit before the read.
-5. Expected counts are exactly 4 TX and 4 RX bytes. At the end both expected queues must be empty.
-   A missing transfer fails this check even if no comparison ever ran.
+5. Expected counts are exactly 4 TX frames and 4 RX bytes. TX frames are compared in order
+   against an expected queue, which must be empty at the end. RX bytes are checked one at a time
+   against a fixed list (there is no RX queue): each RBR read is compared and counted, and the
+   count must be 4. A missing transfer fails this check even if no comparison ever ran.
 6. `intr_tx_watermark_o`, `intr_tx_done_o` or `intr_rx_timeout_o` goes high
    (the wrapper README says they are never enabled).
 7. The alert channel does not finish its initialization handshake in time, an alert pair is
@@ -133,6 +137,7 @@ Each control except the tool failure is a test-only `+smoke_fault=<name>` option
 | Missing TX transfer | Skip one THR write, expected count stays 4 | TX mismatch (frames compare in order), then TX timeout, test fails |
 | Missing RX transfer | Skip one RX frame, expected count stays 4 | LSR.DR wait times out, test fails |
 | Extra TX byte | Write one extra THR byte that is not expected | Unexpected-data error, test fails |
+| LSR error hidden by polling (`rx_frame_err`, checker QA, not V2 error coverage) | Before the first RX byte, drive a frame with a 0 stop bit (framing error; not pushed into the RCVR FIFO, README), then poll LSR while the first valid byte is still arriving | Early polls see FE and LSR[7] with DR = 0, and the read clears them (Section 8.6.3). The test must fail. At this revision polls check only the ready bit, so the control is expected to pass wrongly and so show the gap. |
 | Tool failure | Remove a source file from the build | Build failure, reported as a tool failure |
 
 ## Auxiliary outputs and tie-offs
@@ -228,7 +233,7 @@ The smoke test runs with DVSim and Xcelium 24.03, with `xrun`, `dvsim` and `fuse
 
 ```sh
 dvsim hw/ip/uart16550/dv/uart16550_sim_cfg.hjson -t xcelium -i uart16550_smoke --fixed-seed 1 \
-  --scratch-root <dir outside the repo>
+  --reseed 1 --scratch-root <dir outside the repo>
 dvsim hw/ip/uart16550/dv/uart16550_sim_cfg.hjson -t xcelium -i smoke     # 1 random seed
 dvsim hw/ip/uart16550/dv/uart16550_sim_cfg.hjson -t xcelium -i nightly   # 10 random seeds
 ```
@@ -240,10 +245,10 @@ The UART agent glitches each driven RX bit for up to 10% of the bit time, so see
 Negative controls (see [Negative controls](#negative-controls)) add a run option:
 
 ```sh
-dvsim ... -i uart16550_smoke --fixed-seed 1 --run-opts +smoke_fault=wrong_tx
+dvsim ... -i uart16550_smoke --fixed-seed 1 --reseed 1 --run-opts +smoke_fault=wrong_tx
 ```
 
-with `wrong_tx`, `wrong_rx`, `missing_tx`, `missing_rx` or `extra_tx`.
+with `wrong_tx`, `wrong_rx`, `missing_tx`, `missing_rx`, `extra_tx` or `rx_frame_err`.
 
 For debug, add `--waves shm` and `--verbosity m` (step-by-step register values).
 

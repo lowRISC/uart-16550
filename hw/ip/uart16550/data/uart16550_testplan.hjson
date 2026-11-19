@@ -6,7 +6,7 @@
 //
 // V1 is one smoke test with a fixed configuration. Its exact inputs, expected
 // values and pass/fail rules are in doc/dv/README.md. V2 and V3 testpoints list
-// later work only; they are not implemented.
+// later work only; they are not implemented, so they map to no test yet.
 //
 // Sources: TI PC16550D datasheet SNLS378C (Rev C, May 2015), modified by the
 // documented exceptions in README.md and doc/registers.md of this IP.
@@ -81,7 +81,9 @@
       name: smoke_end_checks
       desc: '''
             At the end of the test:
-            - the expected TX and RX queues are empty and both transfer counts equal 4;
+            - exactly 4 TX frames were seen and the expected TX queue is empty;
+            - exactly 4 RX bytes were read from RBR and checked (RX bytes are checked one at a
+              time against a fixed list, so there is no RX queue);
             - no further TX frame appears during a quiet window of 2 character times;
             - LSR reads 0x60 (no received data, no errors, transmitter empty);
             - intr_tx_watermark_o, intr_tx_done_o and intr_rx_timeout_o stayed low for the whole
@@ -107,7 +109,7 @@
             RBR/THR aliases, address wrap every 32 bytes.
             '''
       stage: V2
-      tests: ["uart16550_csr_rw"]
+      tests: []
     }
     {
       name: tl_errors
@@ -116,7 +118,7 @@
             PutPartialData and size != 2) are recorded but not used as checks until implemented.
             '''
       stage: V2
-      tests: ["uart16550_tl_errors"]
+      tests: []
     }
     {
       name: interrupts
@@ -126,7 +128,7 @@
             test because PR #13 / issue #9 change IIR timeout behaviour.
             '''
       stage: V2
-      tests: ["uart16550_intr"]
+      tests: []
     }
     {
       name: fifo_levels
@@ -135,7 +137,7 @@
             RCVR overrun (LSR.OE), FCR FIFO reset, trigger levels.
             '''
       stage: V2
-      tests: ["uart16550_fifo"]
+      tests: []
     }
     {
       name: rx_errors
@@ -154,7 +156,7 @@
             second time with no new error in between: OE, PE, FE, BI and LSR[7] are all 0.
             '''
       stage: V2
-      tests: ["uart16550_rx_errors"]
+      tests: []
     }
     {
       name: line_config
@@ -163,7 +165,7 @@
             (LCR[6]), and loopback (MCR.LOOP) with the related MSR bits.
             '''
       stage: V2
-      tests: ["uart16550_line_config"]
+      tests: []
     }
     {
       name: alerts
@@ -174,7 +176,7 @@
             than reusing as is.
             '''
       stage: V2
-      tests: ["uart16550_alerts"]
+      tests: []
     }
 
     ////////
@@ -187,7 +189,7 @@
             receiver, and coverage closure.
             '''
       stage: V3
-      tests: ["uart16550_stress_all"]
+      tests: []
     }
   ]
 }
