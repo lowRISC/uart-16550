@@ -8,7 +8,8 @@
 
     upstream: {
         url: "https://github.com/lowRISC/opentitan"
-        rev: "master"
+        // Pinned to the lock revision so the description alone is reproducible.
+        rev: "012fb0fe3042a2ab97f9fa045520286486a4b98f"
     }
 
     mapping: [
@@ -25,6 +26,37 @@
         {from: "hw/check_tool_requirements.py",   to: "check_tool_requirements.py"},
         {from: "hw/tool_requirements.py",         to: "tool_requirements.py",   patch_dir: "scripts"},
 
+        // DV libraries for the UVM bench (hw/ip/uart16550/dv), with their dependencies
+        {from: "hw/dv/sv/alert_agent",     to: "dv/sv/alert_agent"},
+        {from: "hw/dv/sv/bus_params_pkg",  to: "dv/sv/bus_params_pkg"},
+        {from: "hw/dv/sv/common_ifs",      to: "dv/sv/common_ifs"},
+        {from: "hw/dv/sv/csr_utils",       to: "dv/sv/csr_utils"},
+        {from: "hw/dv/sv/dv_base_agent",   to: "dv/sv/dv_base_agent"},
+        {from: "hw/dv/sv/dv_base_reg",     to: "dv/sv/dv_base_reg"},
+        {from: "hw/dv/sv/dv_lib",          to: "dv/sv/dv_lib"},
+        {from: "hw/dv/sv/dv_utils",        to: "dv/sv/dv_utils"},
+        {from: "hw/dv/sv/mem_model",       to: "dv/sv/mem_model"},
+        {from: "hw/dv/sv/str_utils",       to: "dv/sv/str_utils"},
+        {from: "hw/dv/sv/tl_agent",        to: "dv/sv/tl_agent"},
+        {from: "hw/dv/sv/uart_agent",      to: "dv/sv/uart_agent"},
+
+        // Only the DVSim/Xcelium files the smoke flow uses: the job makefile, configs imported
+        // by the project sim cfg, the run script with the Tcl it sources (waves for debug), and
+        // the coverage files referenced by xcelium.hjson and the project sim cfg.
+        {from: "hw/dv/tools/dvsim/sim.mk",              to: "dv/tools/dvsim/sim.mk"},
+        {from: "hw/dv/tools/dvsim/common_modes.hjson",  to: "dv/tools/dvsim/common_modes.hjson"},
+        {from: "hw/dv/tools/dvsim/fusesoc.hjson",       to: "dv/tools/dvsim/fusesoc.hjson"},
+        {from: "hw/dv/tools/dvsim/xcelium.hjson",       to: "dv/tools/dvsim/xcelium.hjson"},
+        {from: "hw/dv/tools/sim.tcl",                   to: "dv/tools/sim.tcl"},
+        {from: "hw/dv/tools/common.tcl",                to: "dv/tools/common.tcl"},
+        {from: "hw/dv/tools/waves.tcl",                 to: "dv/tools/waves.tcl"},
+        {from: "hw/dv/tools/xcelium/cover.ccf",         to: "dv/tools/xcelium/cover.ccf"},
+        {from: "hw/dv/tools/xcelium/common.ccf",        to: "dv/tools/xcelium/common.ccf"},
+        {from: "hw/dv/tools/xcelium/unr.cfg",           to: "dv/tools/xcelium/unr.cfg"},
+        {from: "hw/dv/tools/xcelium/common_cov_excl.tcl", to: "dv/tools/xcelium/common_cov_excl.tcl"},
+        {from: "hw/dv/tools/xcelium/cov_merge.tcl",     to: "dv/tools/xcelium/cov_merge.tcl"},
+        {from: "hw/dv/tools/xcelium/cov_report.tcl",    to: "dv/tools/xcelium/cov_report.tcl"},
+
         // Commit linting scripts
         {from: "util/lint_commits.py",        to: "util/lint_commits.py"},
         {from: "ci/scripts/lint-commits.sh",  to: "ci/scripts/lint-commits.sh", patch_dir: "ci"},
@@ -38,5 +70,7 @@
         "hw/ip/prim/util",
         "hw/ip/tlul/generic_dv",
         "hw/ip/uart/dv",
+        // Self-test bench of the TL agent
+        "hw/dv/sv/tl_agent/dv",
     ]
 }
