@@ -18,6 +18,9 @@ fusesoc --cores-root=. run --target=sim lowrisc:dv:uart16550_tb
 ```
 A passing run will display `Test passed!`; a failing run will display `Test failed!`.
 
+The UVM smoke bench (DVSim and Xcelium), its test contract and run instructions are described in
+[hw/ip/uart16550/doc/dv/README.md](hw/ip/uart16550/doc/dv/README.md).
+
 [opentitan-uart]: https://github.com/lowRISC/opentitan/tree/master/hw/ip/uart
 [16550-spec]: https://web.archive.org/web/20180826215135/http://www.ti.com/lit/ds/symlink/pc16550d.pdf
 

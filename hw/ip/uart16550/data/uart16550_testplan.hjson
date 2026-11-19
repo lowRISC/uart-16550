@@ -1,0 +1,196 @@
+// Copyright lowRISC and contributors (COSMIC project).
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+//
+// UART 16550 wrapper testplan.
+//
+// V1 is one smoke test with a fixed configuration. Its exact inputs, expected
+// values and pass/fail rules are in doc/dv/README.md. V2 and V3 testpoints list
+// later work only; they are not implemented, so they map to no test yet.
+//
+// Sources: TI PC16550D datasheet SNLS378C (Rev C, May 2015), modified by the
+// documented exceptions in README.md and doc/registers.md of this IP.
+{
+  name: "uart16550"
+
+  testpoints: [
+    ////////
+    // V1 //
+    ////////
+    {
+      name: smoke_reset_readback
+      desc: '''
+            After reset, read each register that has a documented reset value and check the full
+            32-bit read data and that no access returns an error.
+
+            Expected (datasheet Table 3, adjusted by the wrapper exceptions in doc/registers.md):
+            IER 0x00, IIR 0x01, LCR 0x13, MCR 0x00, LSR 0x60, MSR 0x00.
+            LCR is 0x13 rather than 0x00 because the wrapper reads WLS as 0b11 and resets EPS to 1.
+            MSR is 0x00 because the modem inputs read as 0 when loopback is disabled.
+
+            Also check that the serial output is high (idle) after reset (datasheet Table 3).
+            SCR, DLL and DLM have no documented reset value, so only write/readback is checked.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+    {
+      name: smoke_config
+      desc: '''
+            Configure the single selected smoke mode: 50 MHz clock, about 1 Mbaud, 8 data bits,
+            no parity, 1 stop bit (8N1), polled operation with IER = 0. The wrapper also supports
+            parity; other line settings are in the V2 line_config testpoint.
+
+            - Write LCR = 0x83 (DLAB = 1, 8N1) and read back 0x83.
+            - Write DLL = 0x03 and DLM = 0x00 and read both back. The wrapper keeps these values
+              but always programs 1 Mbaud at 50 MHz; the first DLL/DLM write enables TX and RX.
+            - Write LCR = 0x03 (DLAB = 0) and read back 0x03.
+            - Write FCR = 0x07 (FIFO enable, clear both FIFOs, RCVR trigger level 1 byte).
+            - Write SCR = 0xA5 and read back 0xA5.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+    {
+      name: smoke_tx
+      desc: '''
+            Write 4 bytes to THR: 0x55, 0x01, 0x80, 0x00. Decode the serial output as 8N1 frames
+            (start bit 0, data LSB first, stop bit 1) and compare them in order.
+
+            - Exactly 4 frames must be seen. A wrong byte, a bad start or stop bit, a frame seen
+              with nothing expected, or a missing frame at the deadline is an error.
+            - After the last frame, LSR must reach 0x60 (THRE and TEMT set) within a bounded wait.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+    {
+      name: smoke_rx
+      desc: '''
+            Drive 4 frames into the serial input at 1 Mbaud, 8N1: 0xAA, 0x02, 0x40, 0x7E.
+            For each byte, poll LSR until DR is set (bounded), check on every poll read that OE,
+            PE, FE, BI and LSR[7] are clear (an LSR read clears them, datasheet Section 8.6.3),
+            read RBR and compare in order.
+
+            0x00 is not used because the wrapper returns 0 when RBR is read with an empty FIFO.
+            The RX bytes differ from the TX bytes so a TX/RX mix-up is detected.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+    {
+      name: smoke_end_checks
+      desc: '''
+            At the end of the test:
+            - exactly 4 TX frames were seen and the expected TX queue is empty;
+            - exactly 4 RX bytes were read from RBR and checked (RX bytes are checked one at a
+              time against a fixed list, so there is no RX queue);
+            - no further TX frame appears during a quiet window of 2 character times;
+            - LSR reads 0x60 (no received data, no errors, transmitter empty);
+            - intr_tx_watermark_o, intr_tx_done_o and intr_rx_timeout_o stayed low for the whole
+              test (the wrapper README says these are never enabled);
+            - the alert channel finished its documented initialization handshake within a bounded
+              time after reset (invalid differential pairs are expected only during that
+              handshake), and afterwards all three alert pairs stayed correctly encoded and no
+              alert was sent (OpenTitan alert handler theory of operation, see doc/dv/README.md);
+            - no UVM_ERROR or UVM_FATAL was reported; any error must make the run fail.
+            '''
+      stage: V1
+      tests: ["uart16550_smoke"]
+    }
+
+    ////////
+    // V2 //
+    ////////
+    {
+      name: csr_reset_and_rw
+      desc: '''
+            All registers: reset values, write/readback, read-only and write-only behaviour, upper
+            byte writes ignored and reads 0, DLAB banking of offsets 0x0 and 0x4, IIR/FCR and
+            RBR/THR aliases, address wrap every 32 bytes.
+            '''
+      stage: V2
+      tests: []
+    }
+    {
+      name: tl_errors
+      desc: '''
+            Non-zero a_address[1:0] returns an error. Documented gaps (integrity not checked,
+            PutPartialData and size != 2) are recorded but not used as checks until implemented.
+            '''
+      stage: V2
+      tests: []
+    }
+    {
+      name: interrupts
+      desc: '''
+            IER enables, IIR identification and priority, and the interrupt outputs, including the
+            documented IIR exceptions. Expected behaviour must be pinned to the RTL revision under
+            test because PR #13 / issue #9 change IIR timeout behaviour.
+            '''
+      stage: V2
+      tests: []
+    }
+    {
+      name: fifo_levels
+      desc: '''
+            TX FIFO 32 bytes and RX FIFO 64 bytes: full, writes to a full XMIT FIFO dropped,
+            RCVR overrun (LSR.OE), FCR FIFO reset, trigger levels.
+            '''
+      stage: V2
+      tests: []
+    }
+    {
+      name: rx_errors
+      desc: '''
+            Parity error, framing error and break detection, with the reporting timing in the
+            doc/registers.md LSR row, and LSR[7]. Characters with a framing or parity error are
+            not pushed into the RCVR FIFO (README.md, Functional differences).
+
+            LSR[7] covers PE, FE and BI only, not OE (doc/registers.md LSR row: LSR[7] is the OR
+            of PE, FE and BI; datasheet Section 8.6.3, bit 7).
+            - After a PE, FE or BI error, read LSR: that error bit and LSR[7] are set.
+            - After an isolated overrun (no PE, FE or BI pending), read LSR: OE is set and
+              LSR[7] is 0.
+            Clear-on-read (datasheet Section 8.6.3): OE, PE, FE and BI are cleared when LSR is
+            read, and LSR[7] is cleared by an LSR read when no further error remains. Read LSR a
+            second time with no new error in between: OE, PE, FE, BI and LSR[7] are all 0.
+            '''
+      stage: V2
+      tests: []
+    }
+    {
+      name: line_config
+      desc: '''
+            Parity enable and even/odd select, ignored WLS/STB/stick parity writes, TX break
+            (LCR[6]), and loopback (MCR.LOOP) with the related MSR bits.
+            '''
+      stage: V2
+      tests: []
+    }
+    {
+      name: alerts
+      desc: '''
+            Directed alert fault injection and ping handshakes for the fatal_fault alert. Passive
+            alert protocol checking is already part of V1 (smoke_end_checks). The 16550 map has
+            no ALERT_TEST register, so a generic register-based alert test needs adapting rather
+            than reusing as is.
+            '''
+      stage: V2
+      tests: []
+    }
+
+    ////////
+    // V3 //
+    ////////
+    {
+      name: stress_and_reset
+      desc: '''
+            Random mixes of the V2 tests, reset during active transfers, baud tolerance of the
+            receiver, and coverage closure.
+            '''
+      stage: V3
+      tests: []
+    }
+  ]
+}
