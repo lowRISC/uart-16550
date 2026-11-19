@@ -12,7 +12,8 @@
 //   missing_tx skip the THR write of the second byte
 //   missing_rx skip driving the second RX byte
 //   extra_tx   write one extra, unexpected byte (0x3C) to THR
-// Checker QA control for LSR polling (not V2 receive-error coverage):
+// Checker QA control for LSR polling (not V2 receive-error coverage). It shows that an error seen
+// and cleared by an early poll read still fails the test; without the per-read check it passed.
 //   rx_frame_err before the first RX byte, drive a frame with a framing error, then poll LSR while
 //                the first valid byte is still arriving
 class uart16550_smoke_test extends uvm_test;
@@ -31,6 +32,9 @@ class uart16550_smoke_test extends uvm_test;
   localparam int unsigned RxReadyTimeoutNs  = 20_000;
   localparam int unsigned QuietWindowNs     = 20_000;  // 2 character times at 1 Mbaud
   localparam int unsigned TestTimeoutNs     = 1_000_000;
+
+  // LSR[7], BI, FE, PE and OE (Section 8.6.3). The smoke expects none of them.
+  localparam bit [7:0] LsrErrorBits = 8'h9E;
 
   // Printed only when every step and end check has run; DVSim requires it to pass.
   localparam string EndMarker = "UART16550_SMOKE_END_CHECKS_DONE";
@@ -152,9 +156,6 @@ class uart16550_smoke_test extends uvm_test;
         send_rx_byte(data);
       end
       poll_lsr(8'h01, RxReadyTimeoutNs, rdata);
-      if (rdata[4:1] != 0 || rdata[7] != 0) begin
-        `uvm_error(`gfn, $sformatf("RX byte %0d: LSR 0x%02x shows an error bit", i, rdata))
-      end
       csr_rd_check(RBR_THR, RxBytes[i], $sformatf("RBR byte %0d", i));
       rx_bytes_checked++;
       wait (rx_sent);
@@ -273,13 +274,16 @@ class uart16550_smoke_test extends uvm_test;
     end
   endfunction
 
-  // Read LSR until all bits in mask are set, within timeout_ns.
+  // Read LSR until all bits in mask are set, within timeout_ns. Every read is checked before the
+  // next one, because an LSR read clears OE, PE, FE, BI and LSR[7] (Section 8.6.3): a later read
+  // cannot show an earlier error. DR, THRE and TEMT may change while polling.
   virtual task poll_lsr(bit [7:0] mask, int unsigned timeout_ns, output bit [31:0] lsr);
     fork begin : isolation_fork
       fork
         do begin
           csr_access(1'b0, LSR, '0, lsr);
           `uvm_info(`gfn, $sformatf("LSR poll read 0x%08x", lsr), UVM_MEDIUM)
+          check_lsr_poll(lsr);
         end while ((lsr[7:0] & mask) != mask);
         begin
           #(timeout_ns * 1ns);
@@ -290,6 +294,17 @@ class uart16550_smoke_test extends uvm_test;
       disable fork;
     end join
   endtask
+
+  // Upper 3 bytes read 0 (registers.md) and no error bit is set.
+  function void check_lsr_poll(bit [31:0] lsr);
+    if (lsr[31:8] != 0) begin
+      `uvm_error(`gfn, $sformatf("LSR poll read 0x%08x: upper 3 bytes are not 0", lsr))
+    end
+    if ((lsr[7:0] & LsrErrorBits) != 0) begin
+      `uvm_error(`gfn, $sformatf("LSR poll read 0x%08x: unexpected error bits 0x%02x %s",
+                                 lsr, lsr[7:0] & LsrErrorBits, "(OE/PE/FE/BI/LSR[7])"))
+    end
+  endfunction
 
   function void check_phase(uvm_phase phase);
     super.check_phase(phase);

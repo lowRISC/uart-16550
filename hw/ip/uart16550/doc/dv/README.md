@@ -7,8 +7,11 @@ The testpoints are in [`data/uart16550_testplan.hjson`](../../data/uart16550_tes
 
 **Status:** the bench and the `uart16550_smoke` test are implemented in [`dv/`](../../dv).
 At commit `33016fe` the smoke passed with seed 1, and the five stimulus negative controls failed
-for their intended reasons with DVSim exit status 1. Qualification of the final revision (ten
-seeds, existing flows, review) is still pending; this is not a V1 sign-off.
+for their intended reasons with DVSim exit status 1. At `15b14b1`, before every LSR poll read was
+checked, the `rx_frame_err` control passed wrongly (DVSim exit 0): a poll read returned 0xE8 (FE
+and LSR[7] set, DR = 0) and the following reads were clean. The per-read check was added after
+that run and has not been simulated yet. Qualification of the final revision (ten seeds, negative
+controls, existing flows, review) is still pending; this is not a V1 sign-off.
 
 ## Sources
 
@@ -63,9 +66,9 @@ Offsets are byte addresses.
 | 6 | Write FCR (0x8) = 0x07 | - | Datasheet Section 8.6.4; `registers.md` FCR and IIR rows (trigger level 1 byte) |
 | 7 | Write SCR (0x1C) = 0xA5, read SCR | 0xA5 | Section 8.6.9 |
 | 8 | Write THR (0x0) = 0x55, 0x01, 0x80, 0x00 | 4 frames on `cio_tx_o`, same order | Section 8.6.2, Table 1 |
-| 9 | Poll LSR until THRE and TEMT are set | 0x60 | Section 8.6.3 |
+| 9 | Poll LSR until THRE and TEMT are set; check every poll read (below) | 0x60 | Section 8.6.3 |
 | 10 | Drive 0xAA, 0x02, 0x40, 0x7E on `cio_rx_i` | - | Bench choice |
-| 11 | For each byte: poll LSR until DR = 1, check LSR[4:1] = 0 and LSR[7] = 0, read RBR | RBR = driven byte, same order | Section 8.6.3 |
+| 11 | For each byte: poll LSR until DR = 1, checking every poll read (below), then read RBR | RBR = driven byte, same order | Section 8.6.3 |
 | 12 | Wait 2 character times (20 us), then read LSR | No new TX frame; LSR = 0x60 | Section 8.6.3 |
 
 Byte choices:
@@ -84,7 +87,10 @@ Each check reports `UVM_ERROR` (or `UVM_FATAL` for a timeout) when it fails:
 1. A register read returns the wrong data, or any access returns `d_error` = 1.
 2. A TX frame has the wrong data, a bad start bit or a bad stop bit.
 3. A TX frame is seen when no byte is expected (unexpected data).
-4. An RBR read returns the wrong byte, or LSR shows an error bit before the read.
+4. An RBR read returns the wrong byte, or any LSR poll read (steps 9 and 11) has OE, PE, FE, BI or
+   LSR[7] set, or non-zero upper 3 bytes. Every poll read is checked before the next one, because
+   an LSR read clears these error bits (Section 8.6.3) and a later read could hide them. DR, THRE
+   and TEMT may change while polling.
 5. Expected counts are exactly 4 TX frames and 4 RX bytes. TX frames are compared in order
    against an expected queue, which must be empty at the end. RX bytes are checked one at a time
    against a fixed list (there is no RX queue): each RBR read is compared and counted, and the
@@ -137,7 +143,7 @@ Each control except the tool failure is a test-only `+smoke_fault=<name>` option
 | Missing TX transfer | Skip one THR write, expected count stays 4 | TX mismatch (frames compare in order), then TX timeout, test fails |
 | Missing RX transfer | Skip one RX frame, expected count stays 4 | LSR.DR wait times out, test fails |
 | Extra TX byte | Write one extra THR byte that is not expected | Unexpected-data error, test fails |
-| LSR error hidden by polling (`rx_frame_err`, checker QA, not V2 error coverage) | Before the first RX byte, drive a frame with a 0 stop bit (framing error; not pushed into the RCVR FIFO, README), then poll LSR while the first valid byte is still arriving | Early polls see FE and LSR[7] with DR = 0, and the read clears them (Section 8.6.3). The test must fail. At this revision polls check only the ready bit, so the control is expected to pass wrongly and so show the gap. |
+| LSR error hidden by polling (`rx_frame_err`, checker QA, not V2 error coverage) | Before the first RX byte, drive a frame with a 0 stop bit (framing error; not pushed into the RCVR FIFO, README), then poll LSR while the first valid byte is still arriving | Early polls see FE and LSR[7] with DR = 0, and the read clears them (Section 8.6.3). The LSR poll check reports FE and LSR[7] on the early read, test fails. At `15b14b1`, before every poll read was checked, this control passed wrongly (poll read 0xE8, then clean reads, DVSim exit 0). |
 | Tool failure | Remove a source file from the build | Build failure, reported as a tool failure |
 
 ## Auxiliary outputs and tie-offs

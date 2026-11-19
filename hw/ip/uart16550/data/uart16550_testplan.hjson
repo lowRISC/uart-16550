@@ -68,7 +68,8 @@
       name: smoke_rx
       desc: '''
             Drive 4 frames into the serial input at 1 Mbaud, 8N1: 0xAA, 0x02, 0x40, 0x7E.
-            For each byte, poll LSR until DR is set (bounded), check LSR error bits are clear,
+            For each byte, poll LSR until DR is set (bounded), check on every poll read that OE,
+            PE, FE, BI and LSR[7] are clear (an LSR read clears them, datasheet Section 8.6.3),
             read RBR and compare in order.
 
             0x00 is not used because the wrapper returns 0 when RBR is read with an empty FIFO.
