@@ -142,11 +142,14 @@
             doc/registers.md LSR row, and LSR[7]. Characters with a framing or parity error are
             not pushed into the RCVR FIFO (README.md, Functional differences).
 
+            LSR[7] covers PE, FE and BI only, not OE (doc/registers.md LSR row: LSR[7] is the OR
+            of PE, FE and BI; datasheet Section 8.6.3, bit 7).
+            - After a PE, FE or BI error, read LSR: that error bit and LSR[7] are set.
+            - After an isolated overrun (no PE, FE or BI pending), read LSR: OE is set and
+              LSR[7] is 0.
             Clear-on-read (datasheet Section 8.6.3): OE, PE, FE and BI are cleared when LSR is
-            read, and LSR[7] is cleared by an LSR read when no further error remains (in the
-            wrapper LSR[7] is the OR of PE, FE and BI, doc/registers.md). After each error, read
-            LSR and check the error bit and LSR[7] are set, then read LSR again and check they are
-            clear when no new error has occurred.
+            read, and LSR[7] is cleared by an LSR read when no further error remains. Read LSR a
+            second time with no new error in between: OE, PE, FE, BI and LSR[7] are all 0.
             '''
       stage: V2
       tests: ["uart16550_rx_errors"]

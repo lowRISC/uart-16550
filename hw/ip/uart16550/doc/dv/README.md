@@ -134,7 +134,7 @@ clean smoke.
 
 | Port | Smoke bench | Check in V1 |
 |-|-|-|
-| `alert_rx_i` / `alert_tx_o` | Driven by an OpenTitan `alert_esc_agent` acting as the alert receiver, so `alert_rx_i` always carries legal differential values and any alert gets a legal ack. No pings are sent in V1. | Alert protocol checked passively for the whole test by the agent's monitor and interface checks; no alert sent |
+| `alert_rx_i` / `alert_tx_o` | Driven by an OpenTitan `alert_agent` (`lowrisc:dv:alert_agent`) in device (receiver) mode, so `alert_rx_i` always carries legal differential values, the post-reset init handshake is completed, and any alert gets a legal ack. No pings are sent in V1. | Alert protocol checked passively for the whole test (see [Planned bench](#planned-bench)); no alert sent |
 | `racl_policies_i` / `racl_error_o` | `RACL_POLICY_VEC_DEFAULT` | Observed only (RACL is not implemented) |
 | `lsio_trigger_o` | Observed | None |
 | `cio_tx_en_o` | Observed | None (not a 16550 signal) |
@@ -146,17 +146,28 @@ clean smoke.
 Reuse OpenTitan DV components where they save work, without the full CIP layer for V1:
 
 - `dv_lib` base classes, `tl_agent` (host), `uart_agent` (supports 1 Mbaud) and
-  `alert_esc_agent` (alert receiver and passive protocol checks).
+  `alert_agent` (`lowrisc:dv:alert_agent`, `hw/dv/sv/alert_agent` at OpenTitan `012fb0fe`) as the
+  alert receiver.
   Register accesses use small helper tasks on raw offsets. A complete RAL model is not required.
 - Not `cip_lib` for V1. At OpenTitan `012fb0fe`, `cip_base_env_cfg` stops with a fatal error when
   the register block has no `alert_test` register, and the 16550 map has none.
   Its generic register checks would also run before the custom data checks.
-  Alert protocol checking is kept by instantiating `alert_esc_agent` directly.
-  If that agent does not check the differential encoding and handshake on its own, the first
-  bench slice adds a small assertion checker on the alert interface.
+  Alert protocol checking is kept by instantiating `alert_agent` directly.
+- What the pinned `alert_agent` does and does not check (read from its sources):
+  - `alert_if` asserts that `ping_p ^ ping_n`, `ack_p ^ ack_n` and `alert_p ^ alert_n` are never
+    unknown out of reset.
+  - In device mode the driver performs the post-reset init handshake on `alert_rx_i` and acks any
+    alert. The monitor waits for that handshake, then reports signal-integrity failures
+    (`alert_p == alert_n`, item type `AlertIntFail`) and alerts (`AlertSigTrans`) on its
+    `m_alert_port`, and keeps the run phase open while `alert_p` is high.
+  - The monitor does not raise `UVM_ERROR` itself (in OpenTitan the CIP scoreboard does).
+    The V1 environment therefore subscribes to `m_alert_port` and reports `UVM_ERROR` for every
+    item, since no alert is expected.
+  - With its default response sequence the agent also starts a ping sequence. V1 sets the ping
+    delay far beyond the whole-test limit, so no ping is sent.
 - Directed alert fault injection and ping tests are later work (V2 `alerts` testpoint).
 - These libraries are not vendored yet. They need `hw/dv/sv` (including `bus_params_pkg` and
-  `alert_esc_agent` with its dependencies) and
+  `alert_agent` with its dependencies) and
   the DVSim configuration from `hw/dv/tools` at the same OpenTitan revision, with no RTL change.
   This must be coordinated with the vendor directory move in PR #14.
 - `dv_base_env_cfg` always creates a register model of type `RAL_T`. Using it with no generated
