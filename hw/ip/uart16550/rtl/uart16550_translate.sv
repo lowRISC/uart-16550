@@ -265,10 +265,10 @@ module uart16550_translate(
         uart_tl_o.a_valid = 1;
         if (req_opcode_q == tlul_pkg::Get) begin
           uart_tl_o.a_opcode  = tlul_pkg::Get;
-          uart_tl_o.a_address = 'h18; // RDATA reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_RDATA_OFFSET);
         end else begin
           uart_tl_o.a_opcode  = tlul_pkg::PutFullData;
-          uart_tl_o.a_address = 'h1c; // WDATA reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_WDATA_OFFSET);
         end
         uart_tl_o.a_data = req_data_q;
 
@@ -307,7 +307,7 @@ module uart16550_translate(
         end else begin
           uart_tl_o.a_opcode = tlul_pkg::PutFullData;
         end
-        uart_tl_o.a_address = 'h4; // INTR_ENABLE reg
+        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
         uart_tl_o.a_data = '0;
         // 16550 to OT mapping
         uart_tl_o.a_data[1] = req_data_q[0]; // rx_watermark = ERBFI
@@ -368,9 +368,9 @@ module uart16550_translate(
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::Get;
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = 'h0; // INTR_STATE reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
         end else begin
-          uart_tl_o.a_address = 'h4; // INTR_ENABLE reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
         end
         uart_tl_o.a_data = '0;
 
@@ -438,7 +438,7 @@ module uart16550_translate(
         // Write FIFO_CTRL
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = 'h20; // FIFO_CTRL reg
+        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_FIFO_CTRL_OFFSET);
         // 16550 to OT mapping
         uart_tl_o.a_data = '0;
         uart_tl_o.a_data[0] = req_data_q[1]; // RXRST = RCVR FIFO reset
@@ -489,11 +489,11 @@ module uart16550_translate(
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = 'h10; // CTRL reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
         end else if (req_step_q == 1) begin
-          uart_tl_o.a_address = 'h28; // OVRD reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_OVRD_OFFSET);
         end else begin
-          uart_tl_o.a_address = 'h30; // TIMEOUT_CTRL reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_TIMEOUT_CTRL_OFFSET);
         end
         // 16550 to OT mapping
         if (req_step_q == 0) begin
@@ -589,7 +589,7 @@ module uart16550_translate(
         // Write CTRL
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = 'h10; // CTRL reg
+        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
         // 16550 to OT mapping
         loop_d = req_data_q[4]; // loop
         uart_tl_o.a_data = '0;
@@ -659,9 +659,9 @@ module uart16550_translate(
           uart_tl_o.a_opcode = tlul_pkg::PutFullData;
         end
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = 'h14; // STATUS reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_STATUS_OFFSET);
         end else begin
-          uart_tl_o.a_address = 'h0; // INTR_STATE reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
         end
         // Clear interrupts that were raised if this is a write to INTR_STATE
         // Reuse resp_data_q[4:1] set in LSRReqWaitSt when req_step_q == 1
@@ -791,7 +791,7 @@ module uart16550_translate(
         // Write CTRL
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = 'h10; // CTRL reg
+        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
         // 16550 to OT mapping
         uart_tl_o.a_data = '0;
         uart_tl_o.a_data[0] = txrx_en_d; // TX = new txrx_en
