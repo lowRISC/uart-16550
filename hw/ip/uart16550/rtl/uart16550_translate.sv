@@ -890,8 +890,7 @@ module uart16550_translate(
   prim_sparse_fsm_flop #(
     .StateEnumT(state_e),
     .Width($bits(state_e)),
-    .ResetValue(IdleSt),
-    .EnableAlertTriggerSVA(0)
+    .ResetValue(IdleSt)
   ) u_state_regs (
     .clk_i   ( clk_i   ),
     .rst_ni  ( rst_ni  ),
