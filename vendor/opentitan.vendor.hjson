@@ -1,0 +1,48 @@
+// Copyright lowRISC and contributors (COSMIC project).
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+{
+    name: "opentitan",
+    target_dir: "opentitan",
+    patch_dir: "patches/opentitan",
+
+    upstream: {
+        url: "https://github.com/lowRISC/opentitan"
+        rev: "master"
+    }
+
+    mapping: [
+        {from: "hw/ip/uart",         to: "ip/uart",   patch_dir: "uart"},
+
+        // Dependencies of the UART
+        {from: "hw/ip/prim",         to: "ip/prim",   patch_dir: "prim"},
+        {from: "hw/ip/prim_generic", to: "ip/prim_generic"},
+        {from: "hw/ip/tlul",         to: "ip/tlul"},
+        {from: "hw/lint",            to: "lint"},
+
+        // Tool version checks used by the lint cores
+        {from: "hw/check_tool_requirements.core", to: "check_tool_requirements.core"},
+        {from: "hw/check_tool_requirements.py",   to: "check_tool_requirements.py"},
+        {from: "hw/tool_requirements.py",         to: "tool_requirements.py",   patch_dir: "scripts"},
+
+        // Commit linting scripts
+        {from: "util/lint_commits.py",        to: "util/lint_commits.py"},
+        {from: "ci/scripts/lint-commits.sh",  to: "ci/scripts/lint-commits.sh", patch_dir: "ci"},
+
+        // Reggen and its dependencies
+        {from: "util/design",           to: "util/design"},
+        {from: "util/reggen",           to: "util/reggen",  patch_dir: "reggen"},
+        {from: "util/regtool.py",       to: "util/regtool.py"},
+        {from: "util/version_file.py",  to: "util/version_file.py"},
+    ]
+
+    exclude_from_upstream: [
+        // Parts of lowRISC IPs not needed by the wrapper
+        "hw/ip/prim/dv",
+        "hw/ip/prim/fpv",
+        "hw/ip/prim/pre_dv",
+        "hw/ip/prim/util",
+        "hw/ip/tlul/generic_dv",
+        "hw/ip/uart/dv",
+    ]
+}

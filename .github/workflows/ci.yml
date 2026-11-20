@@ -19,6 +19,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  UV_PYTHON_DOWNLOADS: never
+
 jobs:
   lint-check:
     runs-on: ubuntu-26.04
@@ -38,9 +41,16 @@ jobs:
           pip3 install .
           rm -r *.egg-info
 
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.12"
+
       - name: License check
         run: reuse lint
 
       - name: Commit metadata check
         if: ${{ github.event_name == 'pull_request' }}
-        run: hw/vendor/lowrisc_ip/ci/scripts/lint-commits.sh "$GITHUB_BASE_REF"
+        run: vendor/opentitan/ci/scripts/lint-commits.sh "$GITHUB_BASE_REF"
+
+      - name: Generated artefacts check
+        run: util/artefacts.py --check
