@@ -265,10 +265,10 @@ module uart16550_translate(
         uart_tl_o.a_valid = 1;
         if (req_opcode_q == tlul_pkg::Get) begin
           uart_tl_o.a_opcode  = tlul_pkg::Get;
-          uart_tl_o.a_address = 'h18; // RDATA reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_RDATA_OFFSET);
         end else begin
           uart_tl_o.a_opcode  = tlul_pkg::PutFullData;
-          uart_tl_o.a_address = 'h1c; // WDATA reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_WDATA_OFFSET);
         end
         uart_tl_o.a_data = req_data_q;
 
@@ -307,10 +307,11 @@ module uart16550_translate(
         end else begin
           uart_tl_o.a_opcode = tlul_pkg::PutFullData;
         end
-        uart_tl_o.a_address = 'h4; // INTR_ENABLE reg
+        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
         uart_tl_o.a_data = '0;
         // 16550 to OT mapping
         uart_tl_o.a_data[1] = req_data_q[0]; // rx_watermark = ERBFI
+        uart_tl_o.a_data[6] = req_data_q[0]; // rx_timeout = ERBFI
         uart_tl_o.a_data[8] = req_data_q[1]; // tx_empty = ETBEI
         uart_tl_o.a_data[3] = req_data_q[2]; // rx_overflow = ELSI
         uart_tl_o.a_data[4] = req_data_q[2]; // rx_frame_err = ELSI
@@ -344,13 +345,14 @@ module uart16550_translate(
         if (req_opcode_q == tlul_pkg::Get) begin
           // OT to 16550 mapping
           host_tl_o.d_data = '0;
-          host_tl_o.d_data[0] = resp_data_q[1]; // ERBFI = rx_watermark
-          host_tl_o.d_data[1] = resp_data_q[8]; // ETBEI = tx_empty
+          host_tl_o.d_data[0] = (resp_data_q[1] & // ERBFI = rx_watermark &
+                                 resp_data_q[6]); //         rx_timeout
+          host_tl_o.d_data[1] = resp_data_q[8];   // ETBEI = tx_empty
           host_tl_o.d_data[2] = (resp_data_q[3] & // ELSI = rx_overflow &
-                                resp_data_q[4] & //        rx_frame_err &
-                                resp_data_q[5] & //        rx_break_err &
-                                resp_data_q[7]); //        rx_parity_err
-          host_tl_o.d_data[3] = edssi_q;        // EDSSI read back
+                                 resp_data_q[4] & //        rx_frame_err &
+                                 resp_data_q[5] & //        rx_break_err &
+                                 resp_data_q[7]); //        rx_parity_err
+          host_tl_o.d_data[3] = edssi_q;          // EDSSI read back
         end else begin
           host_tl_o.d_data = '1;
         end
@@ -366,9 +368,9 @@ module uart16550_translate(
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::Get;
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = 'h0; // INTR_STATE reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
         end else begin
-          uart_tl_o.a_address = 'h4; // INTR_ENABLE reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_ENABLE_OFFSET);
         end
         uart_tl_o.a_data = '0;
 
@@ -405,27 +407,23 @@ module uart16550_translate(
         // OT to 16550 mapping
         host_tl_o.d_data = '0;
         // Interrupt pending, active low
-        host_tl_o.d_data[0] = ~(resp_data_q[1] |
-                                resp_data_q[3] |
-                                resp_data_q[4] |
-                                resp_data_q[5] |
-                                resp_data_q[7] |
-                                resp_data_q[8]);
+        host_tl_o.d_data[0] = ~(|{resp_data_q[8:3], resp_data_q[1]});
         if (resp_data_q[3] || resp_data_q[4] || resp_data_q[5] || resp_data_q[7]) begin
           // Receiver line status has highest priority
-          host_tl_o.d_data[2:1] = 2'b11;
+          host_tl_o.d_data[3:1] = 3'b011;
         end else if (resp_data_q[1]) begin
           // Received data available has highest priority
-          host_tl_o.d_data[2:1] = 2'b10;
+          host_tl_o.d_data[3:1] = 3'b010;
+        end else if (resp_data_q[6]) begin
+          // Character timeout indication has highest priority
+          host_tl_o.d_data[3:1] = 3'b110;
         end else if (resp_data_q[8]) begin
           // Transmitter holding register empty has highest priority
-          host_tl_o.d_data[2:1] = 2'b01;
+          host_tl_o.d_data[3:1] = 3'b001;
         end else begin
           // MODEM status has highest priority or no pending interrupt
-          host_tl_o.d_data[2:1] = 2'b00;
+          host_tl_o.d_data[3:1] = 3'b000;
         end
-        // Bit 3 = FIFO enable AND timeout error
-        host_tl_o.d_data[3] = fifo_en_q & resp_data_q[3];
         // Bit 6,7 = FIFO enable
         host_tl_o.d_data[6] = fifo_en_q;
         host_tl_o.d_data[7] = fifo_en_q;
@@ -440,7 +438,7 @@ module uart16550_translate(
         // Write FIFO_CTRL
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = 'h20; // FIFO_CTRL reg
+        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_FIFO_CTRL_OFFSET);
         // 16550 to OT mapping
         uart_tl_o.a_data = '0;
         uart_tl_o.a_data[0] = req_data_q[1]; // RXRST = RCVR FIFO reset
@@ -487,13 +485,15 @@ module uart16550_translate(
       end
       // LCR write: send request to UART
       LCRReqSt: begin
-        // Write CTRL / OVRD
+        // Write CTRL / OVRD / TIMEOUT_CTRL
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = 'h10; // CTRL reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
+        end else if (req_step_q == 1) begin
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_OVRD_OFFSET);
         end else begin
-          uart_tl_o.a_address = 'h28; // OVRD reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_TIMEOUT_CTRL_OFFSET);
         end
         // 16550 to OT mapping
         if (req_step_q == 0) begin
@@ -506,11 +506,23 @@ module uart16550_translate(
           uart_tl_o.a_data[6] = pen_d; // PARITY_EN = PEN
           uart_tl_o.a_data[7] = ~eps_d; // PARITY_ODD = !EPS
           uart_tl_o.a_data[31:16] = 16'd20972; // NCO default value
-        end else begin
+        end else if (req_step_q == 1) begin
           break_d = req_data_q[6];
           uart_tl_o.a_data = '0;
           uart_tl_o.a_data[0] = break_d; // TXEN = break
           uart_tl_o.a_data[1] = 1'b0; // TXVAL = 0
+        end else begin
+          uart_tl_o.a_data = '0;
+          if (pen_q) begin
+            // Parity enabled
+            // 4 character times is 4*(1 + 8 + 1 + 1) = 44 bit times
+            uart_tl_o.a_data[23:0] = 24'd44;
+          end else begin
+            // Parity disabled
+            // 4 character times is 4*(1 + 8 + 1) = 40 bit times
+            uart_tl_o.a_data[23:0] = 24'd40;
+          end
+          uart_tl_o.a_data[31] = 1'b1;  // EN = 1
         end
 
         // DLAB write
@@ -531,9 +543,9 @@ module uart16550_translate(
             resp_error_d = resp_error_q | uart_tl_i.d_error;
           end
 
-          if (req_step_q == 0) begin
+          if (req_step_q != 2) begin
             // Next step, write another register
-            req_step_d = 1;
+            req_step_d = req_step_q + 1;
             state_d = LCRReqSt;
           end else begin
             // UART writes done
@@ -577,7 +589,7 @@ module uart16550_translate(
         // Write CTRL
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = 'h10; // CTRL reg
+        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
         // 16550 to OT mapping
         loop_d = req_data_q[4]; // loop
         uart_tl_o.a_data = '0;
@@ -647,9 +659,9 @@ module uart16550_translate(
           uart_tl_o.a_opcode = tlul_pkg::PutFullData;
         end
         if (req_step_q == 0) begin
-          uart_tl_o.a_address = 'h14; // STATUS reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_STATUS_OFFSET);
         end else begin
-          uart_tl_o.a_address = 'h0; // INTR_STATE reg
+          uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_INTR_STATE_OFFSET);
         end
         // Clear interrupts that were raised if this is a write to INTR_STATE
         // Reuse resp_data_q[4:1] set in LSRReqWaitSt when req_step_q == 1
@@ -779,7 +791,7 @@ module uart16550_translate(
         // Write CTRL
         uart_tl_o.a_valid = 1;
         uart_tl_o.a_opcode = tlul_pkg::PutFullData;
-        uart_tl_o.a_address = 'h10; // CTRL reg
+        uart_tl_o.a_address = top_pkg::TL_AW'(uart_reg_pkg::UART_CTRL_OFFSET);
         // 16550 to OT mapping
         uart_tl_o.a_data = '0;
         uart_tl_o.a_data[0] = txrx_en_d; // TX = new txrx_en
@@ -878,8 +890,7 @@ module uart16550_translate(
   prim_sparse_fsm_flop #(
     .StateEnumT(state_e),
     .Width($bits(state_e)),
-    .ResetValue(IdleSt),
-    .EnableAlertTriggerSVA(0)
+    .ResetValue(IdleSt)
   ) u_state_regs (
     .clk_i   ( clk_i   ),
     .rst_ni  ( rst_ni  ),
