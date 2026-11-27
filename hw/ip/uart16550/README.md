@@ -23,7 +23,6 @@ This wrapper provides the same set of interrupt outputs as the OpenTitan UART IP
 
 - tx_watermark
 - tx_done
-- rx_timeout
 
 ## Features not yet implemented
 
